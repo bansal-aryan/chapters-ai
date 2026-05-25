@@ -1,7 +1,69 @@
 export type AssignmentPriority = "High" | "Medium" | "Low";
 export type AssignmentStatus = "upcoming" | "completed";
 export type EventTone = "purple" | "blue" | "orange" | "neutral";
-export type ResourceFileType = "pdf" | "docx";
+export type ResourceFileType = "pdf" | "docx" | "image" | "link";
+
+export type LockedAssignmentRow = {
+  id: string;
+  title: string;
+  course: string;
+  owner: string;
+  priority: AssignmentPriority;
+  dueLabel: string;
+  dueDate: string;
+  status: AssignmentStatus;
+  accent: string;
+};
+
+export type LockedWeekDay = {
+  active: boolean;
+  badge?: string;
+  label: string;
+};
+
+export type LockedAllDayEvent = {
+  dayIndex: number;
+  id: string;
+  title: string;
+  tone: EventTone;
+};
+
+export type LockedCalendarEvent = {
+  dayIndex: number;
+  endHour: number;
+  id: string;
+  startHour: number;
+  time: string;
+  title: string;
+  tone: EventTone;
+};
+
+export type LockedFocusSession = {
+  complete: boolean;
+  id: string;
+  minutes: string;
+  time: string;
+};
+
+export type LockedResourceFolder = {
+  id: string;
+  items: string;
+  title: string;
+};
+
+export type LockedResourceFile = {
+  date: string;
+  id: string;
+  meta: string;
+  title: string;
+  type: ResourceFileType;
+};
+
+export type LockedDashboardCard = {
+  helper: string;
+  label: string;
+  value: string;
+};
 
 export const lockedUser = {
   name: "Alex Chen",

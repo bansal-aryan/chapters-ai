@@ -2,13 +2,27 @@
 
 import { Check, ListFilter, Pause, Play, RotateCcw, SkipBack, SkipForward } from "lucide-react";
 import { useState } from "react";
-import { focusBars, focusSessions } from "./data";
+import {
+  focusBars as defaultFocusBars,
+  focusSessions as defaultFocusSessions,
+  type LockedFocusSession
+} from "./data";
 import { LockedPage, LockedPageTitle, SoftPanel } from "./primitives";
 import { cn } from "@/lib/utils";
 
 const focusTabs = ["Focus", "Break"] as const;
 
-export function LockedFocusPage() {
+type LockedFocusPageProps = {
+  bars?: readonly number[];
+  sessions?: readonly LockedFocusSession[];
+  totalFocusTime?: string;
+};
+
+export function LockedFocusPage({
+  bars = defaultFocusBars,
+  sessions = defaultFocusSessions,
+  totalFocusTime = "2h 15m"
+}: LockedFocusPageProps) {
   const [mode, setMode] = useState<(typeof focusTabs)[number]>("Focus");
   const [running, setRunning] = useState(false);
 
@@ -73,10 +87,10 @@ export function LockedFocusPage() {
         <div className="flex flex-col gap-4">
           <SoftPanel className="p-5">
             <p className="text-[13px] font-semibold text-zinc-950">Today&apos;s Focus</p>
-            <p className="mt-5 text-[26px] font-semibold leading-none text-zinc-950">2h 15m</p>
+            <p className="mt-5 text-[26px] font-semibold leading-none text-zinc-950">{totalFocusTime}</p>
             <p className="mt-2 text-[11px] font-medium text-zinc-500">Total Focus Time</p>
             <div className="mt-7 flex h-20 items-end justify-between gap-2">
-              {focusBars.map((height, index) => (
+              {bars.map((height, index) => (
                 <div className="flex flex-1 flex-col items-center gap-2" key={`${height}-${index}`}>
                   <span className="w-2 rounded-full bg-violet-600" style={{ height }} />
                   <span className="text-[9px] font-semibold text-zinc-500">{"MTWTFSS"[index]}</span>
@@ -88,20 +102,26 @@ export function LockedFocusPage() {
           <SoftPanel className="p-5">
             <p className="text-[13px] font-semibold text-zinc-950">Focus Sessions</p>
             <div className="mt-4 flex flex-col gap-3">
-              {focusSessions.map((session) => (
-                <div className="grid grid-cols-[18px_1fr_auto] items-center gap-3" key={session.id}>
-                  <span
-                    className={cn(
-                      "flex size-4 items-center justify-center rounded-full border text-[9px]",
-                      session.complete ? "border-violet-600 bg-violet-600 text-white" : "border-zinc-300 bg-white"
-                    )}
-                  >
-                    {session.complete ? <Check className="size-2.5" /> : null}
-                  </span>
-                  <span className="truncate text-[12px] font-medium text-zinc-800">{session.time}</span>
-                  <span className="text-[11px] text-zinc-500">{session.minutes}</span>
-                </div>
-              ))}
+              {sessions.length ? (
+                sessions.map((session) => (
+                  <div className="grid grid-cols-[18px_1fr_auto] items-center gap-3" key={session.id}>
+                    <span
+                      className={cn(
+                        "flex size-4 items-center justify-center rounded-full border text-[9px]",
+                        session.complete ? "border-violet-600 bg-violet-600 text-white" : "border-zinc-300 bg-white"
+                      )}
+                    >
+                      {session.complete ? <Check className="size-2.5" /> : null}
+                    </span>
+                    <span className="truncate text-[12px] font-medium text-zinc-800">{session.time}</span>
+                    <span className="text-[11px] text-zinc-500">{session.minutes}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-lg border border-dashed border-zinc-200 bg-white p-3 text-[12px] font-medium text-zinc-500">
+                  No planned focus sessions yet.
+                </p>
+              )}
             </div>
           </SoftPanel>
         </div>

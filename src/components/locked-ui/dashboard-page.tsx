@@ -1,16 +1,60 @@
 import { ArrowRight, CalendarDays, Clock3, FileCheck2, FolderOpen, Sparkles, Target } from "lucide-react";
 import Link from "next/link";
-import { assignmentRows, calendarEvents, dashboardCards, resourceFiles } from "./data";
+import {
+  assignmentRows as defaultAssignmentRows,
+  calendarEvents as defaultCalendarEvents,
+  dashboardCards as defaultDashboardCards,
+  resourceFiles as defaultResourceFiles,
+  type LockedAssignmentRow,
+  type LockedCalendarEvent,
+  type LockedDashboardCard,
+  type LockedResourceFile
+} from "./data";
 import { AccentRing, LockedPage, PriorityPill, SoftPanel } from "./primitives";
 
-export function LockedDashboardPage() {
+type DashboardFocus = {
+  course: string;
+  progress: number;
+  summary: string;
+};
+
+type LockedDashboardPageProps = {
+  assistantSuggestion?: string;
+  assignments?: readonly LockedAssignmentRow[];
+  calendarEvents?: readonly LockedCalendarEvent[];
+  dashboardCards?: readonly LockedDashboardCard[];
+  dashboardFocus?: DashboardFocus | null;
+  resourceFiles?: readonly LockedResourceFile[];
+  userName?: string;
+};
+
+const defaultDashboardFocus = {
+  course: "AP Calculus BC",
+  progress: 70,
+  summary: "Problem set due in 2 days"
+};
+
+export function LockedDashboardPage({
+  assistantSuggestion = "Your next best move is to finish the calculus problem set, then block physics lab review after lunch.",
+  assignments = defaultAssignmentRows,
+  calendarEvents = defaultCalendarEvents,
+  dashboardCards = defaultDashboardCards,
+  dashboardFocus = defaultDashboardFocus,
+  resourceFiles = defaultResourceFiles,
+  userName = "Alex"
+}: LockedDashboardPageProps) {
+  const topAssignments = assignments.filter((assignment) => assignment.status === "upcoming").slice(0, 3);
+  const topEvents = calendarEvents.slice(0, 3);
+  const recentFiles = resourceFiles.slice(0, 3);
+  const focusProgress = Math.min(Math.max(dashboardFocus?.progress ?? 0, 0), 100);
+
   return (
     <LockedPage className="max-w-[1080px]">
       <section className="grid gap-5 lg:grid-cols-[1fr_300px]">
         <SoftPanel className="p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-[24px] font-semibold leading-8 text-zinc-950">Good morning, Alex</h1>
+              <h1 className="text-[24px] font-semibold leading-8 text-zinc-950">Good morning, {userName}</h1>
               <p className="mt-2 text-[13px] leading-5 text-zinc-500">Here is what needs attention today.</p>
             </div>
             <Link
@@ -39,12 +83,21 @@ export function LockedDashboardPage() {
             <Target className="size-4 text-violet-600" />
           </div>
           <div className="mt-5 flex items-center gap-4">
-            <div className="flex size-20 items-center justify-center rounded-full bg-[conic-gradient(#6d3df2_0_70%,#ece6ff_70%_100%)]">
-              <div className="flex size-16 items-center justify-center rounded-full bg-white text-[18px] font-semibold text-zinc-950">70%</div>
+            <div
+              className="flex size-20 items-center justify-center rounded-full"
+              style={{
+                background: `conic-gradient(#6d3df2 0 ${focusProgress}%, #ece6ff ${focusProgress}% 100%)`
+              }}
+            >
+              <div className="flex size-16 items-center justify-center rounded-full bg-white text-[18px] font-semibold text-zinc-950">
+                {focusProgress}%
+              </div>
             </div>
             <div className="min-w-0">
-              <p className="text-[13px] font-semibold text-zinc-950">AP Calculus BC</p>
-              <p className="mt-1 text-[12px] leading-5 text-zinc-500">Problem set due in 2 days</p>
+              <p className="text-[13px] font-semibold text-zinc-950">{dashboardFocus?.course ?? "No focus item"}</p>
+              <p className="mt-1 text-[12px] leading-5 text-zinc-500">
+                {dashboardFocus?.summary ?? "You are clear right now."}
+              </p>
             </div>
           </div>
           <Link
@@ -68,16 +121,22 @@ export function LockedDashboardPage() {
             </Link>
           </div>
           <div className="flex flex-col gap-3">
-            {assignmentRows.slice(0, 3).map((assignment) => (
-              <article className="grid grid-cols-[22px_1fr_auto] items-start gap-3 rounded-lg border border-zinc-100 bg-white p-4" key={assignment.id}>
-                <AccentRing accent={assignment.accent} />
-                <div className="min-w-0">
-                  <h3 className="truncate text-[13px] font-semibold text-zinc-950">{assignment.title}</h3>
-                  <p className="mt-1 text-[11px] font-medium text-zinc-500">{assignment.dueLabel}</p>
-                </div>
-                <PriorityPill priority={assignment.priority} />
-              </article>
-            ))}
+            {topAssignments.length ? (
+              topAssignments.map((assignment) => (
+                <article className="grid grid-cols-[22px_1fr_auto] items-start gap-3 rounded-lg border border-zinc-100 bg-white p-4" key={assignment.id}>
+                  <AccentRing accent={assignment.accent} />
+                  <div className="min-w-0">
+                    <h3 className="truncate text-[13px] font-semibold text-zinc-950">{assignment.title}</h3>
+                    <p className="mt-1 text-[11px] font-medium text-zinc-500">{assignment.dueLabel}</p>
+                  </div>
+                  <PriorityPill priority={assignment.priority} />
+                </article>
+              ))
+            ) : (
+              <p className="rounded-lg border border-dashed border-zinc-200 bg-white p-4 text-[12px] font-medium text-zinc-500">
+                No open assignments yet.
+              </p>
+            )}
           </div>
         </SoftPanel>
 
@@ -92,17 +151,23 @@ export function LockedDashboardPage() {
             </Link>
           </div>
           <div className="flex flex-col gap-3">
-            {calendarEvents.slice(0, 3).map((event) => (
-              <div className="flex items-start gap-3" key={event.id}>
-                <span className="mt-1 flex size-7 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
-                  <Clock3 className="size-3.5" />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-[12px] font-semibold text-zinc-950">{event.title}</p>
-                  <p className="mt-1 text-[11px] text-zinc-500">{event.time}</p>
+            {topEvents.length ? (
+              topEvents.map((event) => (
+                <div className="flex items-start gap-3" key={event.id}>
+                  <span className="mt-1 flex size-7 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
+                    <Clock3 className="size-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[12px] font-semibold text-zinc-950">{event.title}</p>
+                    <p className="mt-1 text-[11px] text-zinc-500">{event.time}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="rounded-lg border border-dashed border-zinc-200 bg-white p-4 text-[12px] font-medium text-zinc-500">
+                No planned events yet.
+              </p>
+            )}
           </div>
         </SoftPanel>
       </section>
@@ -119,7 +184,7 @@ export function LockedDashboardPage() {
             </Link>
           </div>
           <p className="text-[13px] leading-6 text-zinc-500">
-            Your next best move is to finish the calculus problem set, then block physics lab review after lunch.
+            {assistantSuggestion}
           </p>
         </SoftPanel>
 
@@ -134,9 +199,15 @@ export function LockedDashboardPage() {
             </Link>
           </div>
           <div className="flex flex-col gap-3">
-            {resourceFiles.slice(0, 3).map((file) => (
-              <p className="truncate text-[12px] font-medium text-zinc-700" key={file.id}>{file.title}</p>
-            ))}
+            {recentFiles.length ? (
+              recentFiles.map((file) => (
+                <p className="truncate text-[12px] font-medium text-zinc-700" key={file.id}>{file.title}</p>
+              ))
+            ) : (
+              <p className="rounded-lg border border-dashed border-zinc-200 bg-white p-4 text-[12px] font-medium text-zinc-500">
+                No recent files yet.
+              </p>
+            )}
           </div>
         </SoftPanel>
       </section>

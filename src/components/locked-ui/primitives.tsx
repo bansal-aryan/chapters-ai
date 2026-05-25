@@ -111,6 +111,7 @@ export function AccentRing({ accent }: { accent: string }) {
       className={cn(
         "mt-1 size-4 shrink-0 rounded-full border-2 bg-white",
         accent === "purple" && "border-violet-500",
+        accent === "blue" && "border-blue-500",
         accent === "orange" && "border-orange-500",
         accent === "slate" && "border-slate-400"
       )}

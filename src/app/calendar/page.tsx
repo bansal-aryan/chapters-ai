@@ -1,10 +1,20 @@
 import { LockedCalendarPage } from "@/components/locked-ui/calendar-page";
 import { AppShell } from "@/components/layout/app-shell";
+import { getLockedUiViewForCurrentUser } from "@/lib/locked-ui/view-model";
 
-export default function CalendarPage() {
+export const dynamic = "force-dynamic";
+
+export default async function CalendarPage() {
+  const liveView = await getLockedUiViewForCurrentUser();
+
   return (
     <AppShell>
-      <LockedCalendarPage />
+      <LockedCalendarPage
+        allDayEvents={liveView?.allDayEvents}
+        calendarEvents={liveView?.calendarEvents}
+        monthLabel={liveView?.monthLabel}
+        weekDays={liveView?.weekDays}
+      />
     </AppShell>
   );
 }

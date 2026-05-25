@@ -2,17 +2,36 @@
 
 import { ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { useState } from "react";
-import { allDayEvents, calendarEvents, weekDays } from "./data";
+import {
+  allDayEvents as defaultAllDayEvents,
+  calendarEvents as defaultCalendarEvents,
+  weekDays as defaultWeekDays,
+  type LockedAllDayEvent,
+  type LockedCalendarEvent,
+  type LockedWeekDay
+} from "./data";
 import { ControlButton, eventToneClasses, LockedPage, LockedPageTitle, SegmentedControl, SoftPanel } from "./primitives";
 
 const viewOptions = ["Month", "Week", "Day"] as const;
 const hours = ["8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"] as const;
-const dayWidth = 100 / weekDays.length;
 const startHour = 8;
 const visibleHours = 9;
 
-export function LockedCalendarPage() {
+type LockedCalendarPageProps = {
+  allDayEvents?: readonly LockedAllDayEvent[];
+  calendarEvents?: readonly LockedCalendarEvent[];
+  monthLabel?: string;
+  weekDays?: readonly LockedWeekDay[];
+};
+
+export function LockedCalendarPage({
+  allDayEvents = defaultAllDayEvents,
+  calendarEvents = defaultCalendarEvents,
+  monthLabel = "May 2025",
+  weekDays = defaultWeekDays
+}: LockedCalendarPageProps) {
   const [view, setView] = useState<(typeof viewOptions)[number]>("Week");
+  const dayWidth = 100 / weekDays.length;
 
   return (
     <LockedPage className="max-w-[1160px]">
@@ -40,7 +59,7 @@ export function LockedCalendarPage() {
             className="flex h-9 items-center rounded-lg px-2 text-[13px] font-semibold text-zinc-950 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
             type="button"
           >
-            May 2025
+            {monthLabel}
             <ChevronRight className="ml-1 size-3 rotate-90 text-zinc-500" />
           </button>
           <div className="ml-auto flex items-center gap-3">
@@ -66,7 +85,9 @@ export function LockedCalendarPage() {
                   >
                     <span className={day.active ? "text-violet-700" : undefined}>{day.label}</span>
                     {day.active ? (
-                      <span className="flex size-4 items-center justify-center rounded-full bg-violet-600 text-[9px] text-white">3</span>
+                      <span className="flex size-4 items-center justify-center rounded-full bg-violet-600 text-[9px] text-white">
+                        {day.badge ?? day.label.split(" ").at(-1)}
+                      </span>
                     ) : null}
                   </div>
                 ))}

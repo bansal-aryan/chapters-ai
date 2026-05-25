@@ -1,10 +1,15 @@
 import { LockedAssignmentsPage } from "@/components/locked-ui/assignments-page";
 import { AppShell } from "@/components/layout/app-shell";
+import { getLockedUiViewForCurrentUser } from "@/lib/locked-ui/view-model";
 
-export default function AssignmentsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function AssignmentsPage() {
+  const liveView = await getLockedUiViewForCurrentUser();
+
   return (
     <AppShell>
-      <LockedAssignmentsPage />
+      <LockedAssignmentsPage assignments={liveView?.assignmentRows} />
     </AppShell>
   );
 }

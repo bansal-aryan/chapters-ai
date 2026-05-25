@@ -5,7 +5,11 @@ import { FormEvent, useState } from "react";
 import { assistantActions } from "./data";
 import { LockedPage, LockedPageTitle } from "./primitives";
 
-export function LockedAssistantPage() {
+type LockedAssistantPageProps = {
+  userName?: string;
+};
+
+export function LockedAssistantPage({ userName = "Alex" }: LockedAssistantPageProps) {
   const [prompt, setPrompt] = useState("");
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -19,7 +23,7 @@ export function LockedAssistantPage() {
 
       <section className="flex flex-1 flex-col items-center justify-center gap-7 py-10">
         <div className="text-center">
-          <h2 className="text-[21px] font-semibold leading-7 text-zinc-950">Hi Alex,</h2>
+          <h2 className="text-[21px] font-semibold leading-7 text-zinc-950">Hi {userName},</h2>
           <p className="mt-2 text-[17px] leading-7 text-zinc-500">How can I help you today?</p>
         </div>
 
