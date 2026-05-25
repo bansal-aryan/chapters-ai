@@ -8,11 +8,21 @@ import {
   getCanvasOAuthConfig,
   oauthStateCookieOptions
 } from "@/lib/canvas/oauth";
+import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import { getAuthenticatedSupabase, isAuthResult } from "@/lib/supabase/session";
 
 const appScopes = ["courses", "assignments", "files", "modules"] as const;
 
 export async function GET(request: NextRequest) {
+  const limit = checkRateLimit(request, "canvas-oauth-start", {
+    limit: 8,
+    windowMs: 15 * 60 * 1000
+  });
+
+  if (!limit.ok) {
+    return rateLimitResponse(limit);
+  }
+
   const auth = await getAuthenticatedSupabase();
   const settingsUrl = new URL("/settings", request.url);
 

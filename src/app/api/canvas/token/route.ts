@@ -5,6 +5,7 @@ import {
   encryptCanvasTokenPayload,
   hasCanvasTokenEncryptionKey
 } from "@/lib/canvas/oauth";
+import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import { getAuthenticatedSupabase, isAuthResult } from "@/lib/supabase/session";
 
 const appScopes = ["courses", "assignments", "files", "modules"] as const;
@@ -43,6 +44,15 @@ type TokenValidationResult =
     };
 
 export async function POST(request: NextRequest) {
+  const limit = checkRateLimit(request, "canvas-token", {
+    limit: 8,
+    windowMs: 15 * 60 * 1000
+  });
+
+  if (!limit.ok) {
+    return rateLimitResponse(limit);
+  }
+
   const auth = await getAuthenticatedSupabase();
 
   if (!isAuthResult(auth)) {
@@ -136,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
   });
 
-  return NextResponse.json({ connection });
+  return NextResponse.json({ connection }, { headers: limit.headers });
 }
 
 async function validateCanvasAccessToken({

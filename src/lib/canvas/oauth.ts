@@ -53,6 +53,8 @@ export type CanvasTokenExchangeResult =
       status: number;
     };
 
+export type CanvasTokenRefreshResult = CanvasTokenExchangeResult;
+
 type CanvasOAuthTokenResponse = {
   access_token?: unknown;
   canvas_region?: unknown;
@@ -238,6 +240,59 @@ export async function exchangeCanvasCode({
       status: response.status
     };
   }
+
+  return { ok: true, payload, raw: data };
+}
+
+export async function refreshCanvasAccessToken({
+  clientId,
+  clientSecret,
+  domain,
+  refreshToken
+}: {
+  clientId: string;
+  clientSecret: string;
+  domain: string;
+  refreshToken: string;
+}): Promise<CanvasTokenRefreshResult> {
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken
+  });
+
+  const response = await fetch(`https://${domain}/login/oauth2/token`, {
+    body,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    method: "POST"
+  });
+
+  const text = await response.text();
+  const data = parseTokenResponse(text);
+
+  if (!response.ok || !data) {
+    return {
+      ok: false,
+      error: data ? "Canvas rejected the OAuth token refresh." : text.slice(0, 240),
+      status: response.status
+    };
+  }
+
+  const payload = toTokenPayload(data);
+
+  if (!payload) {
+    return {
+      ok: false,
+      error: "Canvas returned a refresh response without an access token.",
+      status: response.status
+    };
+  }
+
+  payload.refreshToken = typeof data.refresh_token === "string" ? data.refresh_token : refreshToken;
 
   return { ok: true, payload, raw: data };
 }

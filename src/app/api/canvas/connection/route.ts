@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { normalizeCanvasDomain } from "@/lib/canvas/client";
+import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import { getAuthenticatedSupabase, isAuthResult } from "@/lib/supabase/session";
 
 const safeConnectionColumns =
@@ -25,6 +26,15 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const limit = checkRateLimit(request, "canvas-connection", {
+    limit: 12,
+    windowMs: 15 * 60 * 1000
+  });
+
+  if (!limit.ok) {
+    return rateLimitResponse(limit);
+  }
+
   const auth = await getAuthenticatedSupabase();
 
   if (!isAuthResult(auth)) {
@@ -61,5 +71,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  return NextResponse.json({ connection: data });
+  return NextResponse.json({ connection: data }, { headers: limit.headers });
 }

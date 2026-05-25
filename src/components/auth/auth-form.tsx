@@ -46,6 +46,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState<"email" | "google" | null>(null);
   const isSignup = mode === "signup";
+  const isDemoModeEnabled = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_DEMO_MODE === "true";
 
   function getAuthClient(): SupabaseClient<Database> | null {
     try {
@@ -165,7 +166,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           Continue with Google
         </Button>
 
-        {isSignup ? (
+        {isSignup && isDemoModeEnabled ? (
           <Button asChild className="w-full" variant="outline">
             <Link href="/auth/demo">Continue in demo mode</Link>
           </Button>

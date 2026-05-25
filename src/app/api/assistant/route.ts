@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { buildAssistantResponse } from "@/lib/ai/assistant";
+import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import { searchWorkspaceText } from "@/lib/supabase/search";
 import { getAuthenticatedSupabase, isAuthResult } from "@/lib/supabase/session";
 import { getWorkspaceSnapshotFromSupabase } from "@/lib/supabase/workspace";
@@ -27,6 +28,15 @@ function normalizeOptionalId(value: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  const limit = checkRateLimit(request, "assistant", {
+    limit: 30,
+    windowMs: 5 * 60 * 1000
+  });
+
+  if (!limit.ok) {
+    return rateLimitResponse(limit);
+  }
+
   const auth = await getAuthenticatedSupabase();
 
   if (!isAuthResult(auth)) {
@@ -97,11 +107,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: assistantError.message }, { status: 400 });
   }
 
-  return NextResponse.json({
-    citations: results,
-    message: assistantMessage,
-    threadId
-  });
+  return NextResponse.json(
+    {
+      citations: results,
+      message: assistantMessage,
+      threadId
+    },
+    { headers: limit.headers }
+  );
 
   async function createThread({
     assignmentId,

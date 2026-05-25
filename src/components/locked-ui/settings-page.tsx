@@ -28,6 +28,8 @@ export function LockedSettingsPage({
   const [token, setToken] = useState("");
   const [tokenStatus, setTokenStatus] = useState<TokenStatus>("idle");
   const [tokenMessage, setTokenMessage] = useState("");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [syncMessage, setSyncMessage] = useState("");
   const canvasAuth = useMemo(() => createCanvasAuthRequest({ domain }), [domain]);
   const signInHref = isDemoSession ? "/auth/sign-out?next=%2Flogin%3Fnext%3D%252Fsettings" : "/login?next=%2Fsettings";
 
@@ -64,6 +66,49 @@ export function LockedSettingsPage({
     setToken("");
     setTokenStatus("success");
     setTokenMessage("Canvas access token connected. The first sync has been queued.");
+  }
+
+  async function handleSyncNow() {
+    if (!canConnectCanvas) {
+      setSyncStatus("error");
+      setSyncMessage("Sign in with a real account before syncing Canvas.");
+      return;
+    }
+
+    setSyncStatus("pending");
+    setSyncMessage("");
+
+    const response = await fetch("/api/canvas/sync", {
+      body: JSON.stringify({ domain }),
+      headers: {
+        "content-type": "application/json"
+      },
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      sync?: {
+        counts?: {
+          assignments: number;
+          courses: number;
+          resources: number;
+        };
+      };
+    } | null;
+
+    if (!response.ok) {
+      setSyncStatus("error");
+      setSyncMessage(payload?.error ?? "Canvas sync failed.");
+      return;
+    }
+
+    const counts = payload?.sync?.counts;
+    setSyncStatus("success");
+    setSyncMessage(
+      counts
+        ? `Synced ${counts.courses} courses, ${counts.assignments} assignments, and ${counts.resources} resources.`
+        : "Canvas sync finished."
+    );
   }
 
   return (
@@ -158,7 +203,16 @@ export function LockedSettingsPage({
           <h2 className="text-[14px] font-semibold text-zinc-950">Sync health</h2>
           <div className="mt-5 flex flex-col gap-4">
             {[
-              { icon: RefreshCcw, label: "Last sync", value: "Pending OAuth" },
+              {
+                icon: RefreshCcw,
+                label: "Last sync",
+                value:
+                  syncStatus === "success"
+                    ? "Just now"
+                    : syncStatus === "pending"
+                      ? "Syncing..."
+                      : "Ready to sync"
+              },
               { icon: KeyRound, label: "Token storage", value: "Server-side" },
               { icon: ShieldCheck, label: "Access", value: canConnectCanvas ? "User-owned rows" : "Sign in required" }
             ].map((item) => {
@@ -176,6 +230,20 @@ export function LockedSettingsPage({
                 </div>
               );
             })}
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 text-[13px] font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!canConnectCanvas || syncStatus === "pending"}
+              onClick={handleSyncNow}
+              type="button"
+            >
+              <RefreshCcw className={syncStatus === "pending" ? "size-4 animate-spin" : "size-4"} />
+              {syncStatus === "pending" ? "Syncing Canvas" : "Sync now"}
+            </button>
+            {syncStatus !== "idle" ? (
+              <p className="rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-[12px] font-medium text-violet-800">
+                {syncMessage}
+              </p>
+            ) : null}
           </div>
         </SoftPanel>
       </section>
@@ -207,6 +275,7 @@ export type CanvasStatus =
   | "token_exchange_failed";
 
 type TokenStatus = "error" | "idle" | "pending" | "success";
+type SyncStatus = "error" | "idle" | "pending" | "success";
 
 function getCanvasStatusMessage(status: CanvasStatus) {
   switch (status) {
