@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { syncQueuedCanvasRuns } from "@/lib/canvas/sync";
+import { syncDueCanvasConnections, syncQueuedCanvasRuns } from "@/lib/canvas/sync";
 import { createServiceSupabaseClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -30,11 +30,16 @@ async function handleCanvasSyncJob(request: NextRequest) {
     return NextResponse.json({ error: "Supabase service client is not configured." }, { status: 503 });
   }
 
-  const limit = Number(request.nextUrl.searchParams.get("limit") ?? 3);
-  const results = await syncQueuedCanvasRuns(supabase, Math.min(Math.max(limit, 1), 10));
+  const limit = Math.min(Math.max(Number(request.nextUrl.searchParams.get("limit") ?? 5), 1), 10);
+  const staleMinutes = Math.min(Math.max(Number(request.nextUrl.searchParams.get("staleMinutes") ?? 2), 1), 60);
+  const queuedResults = await syncQueuedCanvasRuns(supabase, limit);
+  const dueResults = await syncDueCanvasConnections(supabase, { limit, staleMinutes });
+  const results = [...queuedResults, ...dueResults];
 
   return NextResponse.json({
     processed: results.length,
+    queued: queuedResults.length,
+    stale: dueResults.length,
     results
   });
 }

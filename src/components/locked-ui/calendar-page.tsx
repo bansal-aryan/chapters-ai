@@ -31,18 +31,23 @@ export function LockedCalendarPage({
   weekDays = defaultWeekDays
 }: LockedCalendarPageProps) {
   const [view, setView] = useState<(typeof viewOptions)[number]>("Week");
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [calendarFilters, setCalendarFilters] = useState(["Assignments", "Study blocks", "Manual events"]);
   const dayWidth = 100 / weekDays.length;
+  const displayedMonth = weekOffset === 0 ? monthLabel : `${monthLabel} ${weekOffset > 0 ? "+" : ""}${weekOffset}w`;
 
   return (
     <LockedPage className="max-w-[1160px]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <LockedPageTitle title="Calendar" />
         <div className="flex flex-wrap items-center gap-3">
-          <ControlButton>Today</ControlButton>
+          <ControlButton onClick={() => setWeekOffset(0)}>Today</ControlButton>
           <div className="flex items-center gap-1">
             <button
               aria-label="Previous week"
               className="flex size-8 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+              onClick={() => setWeekOffset((offset) => offset - 1)}
               type="button"
             >
               <ChevronLeft className="size-4" />
@@ -50,6 +55,7 @@ export function LockedCalendarPage({
             <button
               aria-label="Next week"
               className="flex size-8 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+              onClick={() => setWeekOffset((offset) => offset + 1)}
               type="button"
             >
               <ChevronRight className="size-4" />
@@ -59,18 +65,40 @@ export function LockedCalendarPage({
             className="flex h-9 items-center rounded-lg px-2 text-[13px] font-semibold text-zinc-950 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
             type="button"
           >
-            {monthLabel}
+            {displayedMonth}
             <ChevronRight className="ml-1 size-3 rotate-90 text-zinc-500" />
           </button>
           <div className="ml-auto flex items-center gap-3">
             <SegmentedControl onChange={setView} options={viewOptions} value={view} />
-            <ControlButton>
+            <ControlButton active={filterOpen} onClick={() => setFilterOpen((open) => !open)}>
               <Filter className="size-3.5" />
               Filter
             </ControlButton>
           </div>
         </div>
       </div>
+
+      {filterOpen ? (
+        <div className="flex flex-wrap gap-2 rounded-lg border border-zinc-200 bg-white p-3">
+          {["Assignments", "Study blocks", "Manual events"].map((item) => (
+            <button
+              aria-pressed={calendarFilters.includes(item)}
+              className={`h-8 rounded-lg px-3 text-[12px] font-semibold ${
+                calendarFilters.includes(item) ? "bg-violet-50 text-violet-700" : "bg-zinc-50 text-zinc-500"
+              }`}
+              key={item}
+              onClick={() =>
+                setCalendarFilters((current) =>
+                  current.includes(item) ? current.filter((filter) => filter !== item) : [...current, item]
+                )
+              }
+              type="button"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <SoftPanel className="border-0 shadow-none">
         <div className="overflow-x-auto">

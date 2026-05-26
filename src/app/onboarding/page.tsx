@@ -36,13 +36,13 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
             Set up the workspace around your school day.
           </h1>
           <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-            Tell chapters.ai the basics now. The Canvas domain is stored as a pending connection, ready for the OAuth sync flow.
+            Tell chapters.ai the basics now and connect Canvas with a personal access token so your first sync can start immediately.
           </p>
           <div className="mt-8 grid gap-3 text-sm text-muted-foreground">
             {[
               "Profile data stays scoped to your authenticated account.",
-              "Canvas tokens are represented by secure references, not plaintext fields.",
-              "You can continue without Canvas and connect it later."
+              "Canvas tokens are encrypted server-side before they are stored.",
+              "For this MVP, Canvas personal access token connection is required."
             ].map((item) => (
               <div className="flex items-center gap-3" key={item}>
                 <div className="flex size-7 items-center justify-center rounded-full bg-muted">
@@ -94,8 +94,19 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
                 <span className="text-xs font-medium text-muted-foreground">Canvas domain</span>
                 <div className="relative">
                   <Link2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="pl-9" name="canvasDomain" placeholder="school.instructure.com" />
+                  <Input className="pl-9" name="canvasDomain" placeholder="school.instructure.com" required />
                 </div>
+              </label>
+
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-muted-foreground">Canvas personal access token</span>
+                <Input
+                  autoComplete="off"
+                  name="canvasAccessToken"
+                  placeholder="Paste your Canvas token"
+                  required
+                  type="password"
+                />
               </label>
 
               {params.error ? (
@@ -105,7 +116,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
               ) : null}
 
               <Button className="w-full" size="lg" type="submit">
-                Continue to dashboard
+                Connect Canvas and continue
                 <ArrowRight />
               </Button>
             </form>

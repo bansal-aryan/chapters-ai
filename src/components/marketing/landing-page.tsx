@@ -156,7 +156,7 @@ export function LandingPage({ isAuthenticated }: LandingPageProps) {
         </div>
         <div className="rounded-[2rem] border border-border/70 bg-card p-8 shadow-sm" id="pricing">
           <Trophy className="size-8 text-brand" />
-          <h2 className="mt-8 text-3xl font-semibold tracking-tight">Built for a YC-style prototype, priced for access.</h2>
+          <h2 className="mt-8 text-3xl font-semibold tracking-tight">Built for an early MVP, priced for access.</h2>
           <p className="mt-5 text-sm leading-7 text-muted-foreground">
             Start with the student workspace, then expand into school partnerships as Canvas sync, insights, and guardian workflows mature.
           </p>

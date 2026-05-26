@@ -5,7 +5,7 @@ export type CanvasConnectionRequest = {
 export type CanvasConnectionState = {
   domain: string;
   authUrl: string;
-  status: "not_connected" | "ready_for_oauth" | "connected";
+  status: "connected" | "not_connected" | "ready_for_token";
 };
 
 export function normalizeCanvasDomain(domain: string): string {
@@ -34,7 +34,7 @@ export function createCanvasAuthRequest({
 
   return {
     domain: normalizedDomain,
-    authUrl: `https://${normalizedDomain}/login/oauth2/auth`,
-    status: "ready_for_oauth"
+    authUrl: `https://${normalizedDomain}/profile/settings`,
+    status: "ready_for_token"
   };
 }

@@ -1,9 +1,8 @@
 "use client";
 
-import { KeyRound, Link2, RefreshCcw, ShieldCheck } from "lucide-react";
+import { KeyRound, RefreshCcw, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useMemo, useState } from "react";
-import { createCanvasAuthRequest } from "@/lib/canvas/client";
+import { type FormEvent, useState } from "react";
 import { LockedPage, LockedPageTitle, SoftPanel } from "./primitives";
 
 const guardrails = [
@@ -14,23 +13,26 @@ const guardrails = [
 
 type LockedSettingsPageProps = {
   canConnectCanvas?: boolean;
+  connectedCanvasDomain?: string;
   initialCanvasStatus?: CanvasStatus;
   isDemoSession?: boolean;
+  lastSyncedAt?: string;
 };
 
 export function LockedSettingsPage({
   canConnectCanvas = true,
+  connectedCanvasDomain,
   initialCanvasStatus = "idle",
-  isDemoSession = false
+  isDemoSession = false,
+  lastSyncedAt
 }: LockedSettingsPageProps) {
-  const [domain, setDomain] = useState("school.instructure.com");
+  const [domain, setDomain] = useState(connectedCanvasDomain ?? "school.instructure.com");
   const [canvasStatus] = useState<CanvasStatus>(initialCanvasStatus);
   const [token, setToken] = useState("");
   const [tokenStatus, setTokenStatus] = useState<TokenStatus>("idle");
   const [tokenMessage, setTokenMessage] = useState("");
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [syncMessage, setSyncMessage] = useState("");
-  const canvasAuth = useMemo(() => createCanvasAuthRequest({ domain }), [domain]);
   const signInHref = isDemoSession ? "/auth/sign-out?next=%2Flogin%3Fnext%3D%252Fsettings" : "/login?next=%2Fsettings";
 
   async function handleTokenSubmit(event: FormEvent<HTMLFormElement>) {
@@ -116,11 +118,11 @@ export function LockedSettingsPage({
       <LockedPageTitle description="Manage account, integrations, and study preferences." title="Settings" />
 
       <section className="grid gap-5 lg:grid-cols-[1fr_300px]">
-        <SoftPanel className="p-5">
+        <SoftPanel className="p-5" id="canvas-token">
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-[14px] font-semibold text-zinc-950">Canvas integration</h2>
-              <p className="mt-1 text-[12px] leading-5 text-zinc-500">Connect with OAuth or your own Canvas access token.</p>
+              <p className="mt-1 text-[12px] leading-5 text-zinc-500">Connect with your Canvas personal access token.</p>
             </div>
             <span className="rounded-full bg-violet-50 px-3 py-1 text-[11px] font-semibold text-violet-700">
               {canvasStatus === "connected" ? "Connected" : "Ready"}
@@ -140,7 +142,7 @@ export function LockedSettingsPage({
               </Link>
             </div>
           ) : null}
-          <form action="/api/canvas/oauth/start" className="flex flex-col gap-3" method="get">
+          <form className="flex flex-col gap-3" onSubmit={handleTokenSubmit}>
             <label className="text-[12px] font-semibold text-zinc-700" htmlFor="canvas-domain">
               Canvas domain
             </label>
@@ -151,25 +153,6 @@ export function LockedSettingsPage({
               onChange={(event) => setDomain(event.target.value)}
               value={domain}
             />
-            <button
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 text-[13px] font-semibold text-white shadow-[0_12px_28px_rgba(109,61,242,0.24)] transition-colors hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!canConnectCanvas}
-              type="submit"
-            >
-              <Link2 className="size-4" />
-              Connect Canvas
-            </button>
-          </form>
-          {canvasStatus !== "idle" ? (
-            <p className="mt-3 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-[12px] font-medium text-violet-800">
-              {getCanvasStatusMessage(canvasStatus)}
-            </p>
-          ) : null}
-          <p className="mt-4 truncate rounded-lg bg-zinc-50 px-3 py-2 text-[11px] font-medium text-zinc-500">
-            {canvasAuth.authUrl}
-          </p>
-          <div className="my-5 h-px bg-zinc-100" />
-          <form className="flex flex-col gap-3" onSubmit={handleTokenSubmit}>
             <label className="text-[12px] font-semibold text-zinc-700" htmlFor="canvas-token">
               Personal access token
             </label>
@@ -189,9 +172,14 @@ export function LockedSettingsPage({
               type="submit"
             >
               <KeyRound className="size-4" />
-              {tokenStatus === "pending" ? "Checking token..." : "Connect with token"}
+              {tokenStatus === "pending" ? "Checking token..." : canvasStatus === "connected" ? "Update Canvas token" : "Connect Canvas"}
             </button>
           </form>
+          {canvasStatus !== "idle" ? (
+            <p className="mt-3 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-[12px] font-medium text-violet-800">
+              {getCanvasStatusMessage(canvasStatus)}
+            </p>
+          ) : null}
           {tokenStatus !== "idle" ? (
             <p className="mt-3 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-[12px] font-medium text-violet-800">
               {tokenMessage}
@@ -211,7 +199,9 @@ export function LockedSettingsPage({
                     ? "Just now"
                     : syncStatus === "pending"
                       ? "Syncing..."
-                      : "Ready to sync"
+                      : lastSyncedAt
+                        ? new Date(lastSyncedAt).toLocaleString()
+                        : "Ready to sync"
               },
               { icon: KeyRound, label: "Token storage", value: "Server-side" },
               { icon: ShieldCheck, label: "Access", value: canConnectCanvas ? "User-owned rows" : "Sign in required" }
@@ -269,9 +259,7 @@ export type CanvasStatus =
   | "connection_error"
   | "invalid_domain"
   | "invalid_state"
-  | "missing_code"
   | "missing_config"
-  | "oauth_denied"
   | "token_exchange_failed";
 
 type TokenStatus = "error" | "idle" | "pending" | "success";
@@ -282,17 +270,13 @@ function getCanvasStatusMessage(status: CanvasStatus) {
     case "connected":
       return "Canvas is connected. The first sync has been queued.";
     case "missing_config":
-      return "Canvas OAuth needs CANVAS_CLIENT_ID, CANVAS_CLIENT_SECRET, and CANVAS_TOKEN_ENCRYPTION_KEY.";
+      return "Canvas token storage needs CANVAS_TOKEN_ENCRYPTION_KEY.";
     case "invalid_domain":
       return "Enter your school Canvas domain before connecting.";
     case "invalid_state":
-      return "Canvas returned an invalid or expired OAuth state. Please try connecting again.";
-    case "oauth_denied":
-      return "Canvas authorization was cancelled or denied.";
-    case "missing_code":
-      return "Canvas did not return an OAuth code. Please try again.";
+      return "Canvas returned an invalid connection state. Please try connecting again.";
     case "token_exchange_failed":
-      return "Canvas rejected the OAuth code exchange. Check the developer key and redirect URI.";
+      return "Canvas rejected the connection. Check your domain and token, then try again.";
     case "connection_error":
       return "The Canvas connection could not be saved. Please try again.";
     default:

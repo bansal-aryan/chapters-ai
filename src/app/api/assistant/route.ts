@@ -1,7 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { buildAssistantResponse } from "@/lib/ai/assistant";
+import { generateOpenAIAssistantResponse } from "@/lib/ai/openai-assistant";
+import { getDemoWorkspaceSnapshot } from "@/lib/domain/demo-store";
 import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
-import { searchWorkspaceText } from "@/lib/supabase/search";
+import { searchDemoWorkspaceText, searchWorkspaceText } from "@/lib/supabase/search";
 import { getAuthenticatedSupabase, isAuthResult } from "@/lib/supabase/session";
 import { getWorkspaceSnapshotFromSupabase } from "@/lib/supabase/workspace";
 
@@ -37,13 +39,6 @@ export async function POST(request: NextRequest) {
     return rateLimitResponse(limit);
   }
 
-  const auth = await getAuthenticatedSupabase();
-
-  if (!isAuthResult(auth)) {
-    return auth.error;
-  }
-
-  const { supabase, user } = auth;
   const body = (await request.json().catch(() => null)) as AssistantRequest | null;
   const message = typeof body?.message === "string" ? body.message.trim() : "";
 
@@ -59,6 +54,36 @@ export async function POST(request: NextRequest) {
   const courseId = normalizeOptionalId(body?.courseId);
   const assignmentId = normalizeOptionalId(body?.assignmentId);
   const requestedThreadId = normalizeOptionalId(body?.threadId);
+
+  if (request.cookies.get("chapters_demo_session")?.value === "1") {
+    const snapshot = getDemoWorkspaceSnapshot();
+    const results = searchDemoWorkspaceText(message, { courseId, limit: 5 });
+    const threadId = requestedThreadId ?? `demo-thread-${scope}-${assignmentId ?? courseId ?? "global"}`;
+    const assistantContent = buildAssistantResponse({ message, results, snapshot });
+
+    return NextResponse.json(
+      {
+        citations: results,
+        message: {
+          citation_resource_ids: results.map((result) => result.fileResourceId).filter(Boolean),
+          content: assistantContent,
+          id: `demo-message-${Date.now()}`,
+          role: "assistant",
+          thread_id: threadId
+        },
+        threadId
+      },
+      { headers: limit.headers }
+    );
+  }
+
+  const auth = await getAuthenticatedSupabase();
+
+  if (!isAuthResult(auth)) {
+    return auth.error;
+  }
+
+  const { supabase, user } = auth;
   const threadId = requestedThreadId
     ? await getOwnedThreadId(requestedThreadId)
     : await createThread({ assignmentId, courseId, message, scope, userId: user.id });
@@ -82,7 +107,9 @@ export async function POST(request: NextRequest) {
     getWorkspaceSnapshotFromSupabase({ allowEmpty: true }),
     searchWorkspaceText(supabase, message, { courseId, limit: 5 })
   ]);
-  const assistantContent = buildAssistantResponse({ message, results, snapshot });
+  const assistantContent =
+    (await generateOpenAIAssistantResponse({ message, results, snapshot })) ??
+    buildAssistantResponse({ message, results, snapshot });
   const citationResourceIds = results
     .map((result) => result.fileResourceId)
     .filter((id): id is string => Boolean(id));

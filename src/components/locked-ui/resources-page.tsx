@@ -23,6 +23,9 @@ export function LockedResourcesPage({
   folders = defaultResourceFolders
 }: LockedResourcesPageProps) {
   const [tab, setTab] = useState<(typeof tabs)[number]>("My Resources");
+  const [notice, setNotice] = useState("");
+  const visibleFiles = tab === "My Resources" ? files : [];
+  const visibleFolders = tab === "My Resources" ? folders : [];
 
   return (
     <LockedPage className="max-w-[980px]">
@@ -45,16 +48,25 @@ export function LockedResourcesPage({
             ))}
           </div>
         </div>
-        <ControlButton>New Folder</ControlButton>
+        <ControlButton onClick={() => setNotice("Folder creation is ready for connected resource libraries.")}>
+          New Folder
+        </ControlButton>
       </div>
+
+      {notice ? (
+        <div className="rounded-lg border border-violet-100 bg-violet-50 px-4 py-3 text-[12px] font-medium text-violet-800">
+          {notice}
+        </div>
+      ) : null}
 
       <section className="flex flex-col gap-4">
         <h2 className="text-[13px] font-semibold text-zinc-950">Folders</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {folders.map((folder) => (
+          {visibleFolders.map((folder) => (
             <button
               className="flex min-h-[72px] flex-col items-start justify-center rounded-lg border border-zinc-200 bg-zinc-50 px-4 text-left transition-colors hover:border-violet-200 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
               key={folder.id}
+              onClick={() => setNotice(`Showing files for ${folder.title}.`)}
               type="button"
             >
               <span className="flex items-center gap-2 text-[12px] font-semibold text-zinc-950">
@@ -67,6 +79,7 @@ export function LockedResourcesPage({
           <button
             aria-label="Create folder"
             className="flex min-h-[72px] items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            onClick={() => setNotice("Folder creation is ready for connected resource libraries.")}
             type="button"
           >
             <Plus className="size-5" />
@@ -77,8 +90,8 @@ export function LockedResourcesPage({
       <section className="flex flex-col gap-4">
         <h2 className="text-[13px] font-semibold text-zinc-950">Files</h2>
         <div className="overflow-hidden rounded-lg border border-zinc-100 bg-white">
-          {files.length ? (
-            files.map((file) => (
+          {visibleFiles.length ? (
+            visibleFiles.map((file) => (
               <article
                 className="grid min-h-[64px] grid-cols-[1fr_auto_32px] items-center gap-4 border-b border-zinc-100 px-3 last:border-b-0 sm:px-4"
                 key={file.id}
@@ -104,6 +117,7 @@ export function LockedResourcesPage({
                 <button
                   aria-label={`More actions for ${file.title}`}
                   className="flex size-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+                  onClick={() => setNotice(`${file.title} is available in your synced resource index.`)}
                   type="button"
                 >
                   <MoreHorizontal className="size-4" />
@@ -118,7 +132,7 @@ export function LockedResourcesPage({
         </div>
       </section>
 
-      {files.length > 5 ? (
+      {visibleFiles.length > 5 ? (
         <button
           className="mx-auto rounded-lg px-4 py-2 text-[13px] font-medium text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
           type="button"

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { connectCanvasPersonalAccessToken } from "@/lib/canvas/personal-token";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type StudentLevel = "high_school" | "college" | "other";
@@ -49,6 +50,7 @@ export async function completeOnboarding(formData: FormData) {
   const studentLevel = getStudentLevel(formData.get("studentLevel"));
   const timezone = String(formData.get("timezone") ?? "").trim() || "America/Los_Angeles";
   const canvasDomain = normalizeCanvasDomain(formData.get("canvasDomain"));
+  const canvasAccessToken = String(formData.get("canvasAccessToken") ?? "").trim();
 
   const { error: profileError } = await supabase.from("profiles").upsert({
     id: user.id,
@@ -76,40 +78,19 @@ export async function completeOnboarding(formData: FormData) {
     redirect(`/onboarding?error=${encodeURIComponent(contextError.message)}`);
   }
 
-  if (canvasDomain) {
-    const { error: canvasError } = await supabase.from("canvas_connections").upsert(
-      {
-        user_id: user.id,
-        canvas_domain: canvasDomain,
-        status: "pending",
-        scopes: ["courses", "assignments", "files", "modules"],
-        metadata: {
-          source: "onboarding"
-        }
-      },
-      {
-        onConflict: "user_id,canvas_domain"
-      }
-    );
+  if (!canvasDomain || !canvasAccessToken) {
+    redirect("/onboarding?error=Canvas%20domain%20and%20personal%20access%20token%20are%20required%20for%20this%20MVP");
+  }
 
-    if (canvasError) {
-      redirect(`/onboarding?error=${encodeURIComponent(canvasError.message)}`);
-    }
+  const canvasResult = await connectCanvasPersonalAccessToken(supabase, {
+    accessToken: canvasAccessToken,
+    domain: canvasDomain,
+    queueSource: "onboarding",
+    userId: user.id
+  });
 
-    const { error: syncError } = await supabase.from("sync_runs").insert({
-      user_id: user.id,
-      provider: "canvas",
-      status: "queued",
-      summary: `Initial Canvas sync queued for ${canvasDomain}`,
-      metadata: {
-        canvas_domain: canvasDomain,
-        source: "onboarding"
-      }
-    });
-
-    if (syncError) {
-      redirect(`/onboarding?error=${encodeURIComponent(syncError.message)}`);
-    }
+  if (!canvasResult.ok) {
+    redirect(`/onboarding?error=${encodeURIComponent(canvasResult.error)}`);
   }
 
   revalidatePath("/dashboard");

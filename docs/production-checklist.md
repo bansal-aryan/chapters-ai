@@ -9,13 +9,8 @@ Required:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `CANVAS_TOKEN_ENCRYPTION_KEY`
 - `CRON_SECRET`
-
-Canvas OAuth, when the school developer key is available:
-
-- `CANVAS_CLIENT_ID`
-- `CANVAS_CLIENT_SECRET`
-- `CANVAS_OAUTH_REDIRECT_URI=https://your-domain.com/api/canvas/oauth/callback`
-- `CANVAS_OAUTH_SCOPES`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` (defaults to `gpt-5.2`)
 
 Optional:
 
@@ -44,12 +39,14 @@ Manual user sync:
 POST /api/canvas/sync
 ```
 
-Queued production worker:
+External scheduler worker:
 
 ```bash
-curl "https://your-domain.com/api/jobs/canvas-sync" \
+curl "https://your-domain.com/api/jobs/canvas-sync?staleMinutes=2&limit=5" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-The worker processes queued `sync_runs` and requires `SUPABASE_SERVICE_ROLE_KEY` because it runs outside a user session.
-Vercel Cron invokes this route with `GET` and automatically sends `Authorization: Bearer $CRON_SECRET` when `CRON_SECRET` is configured.
+The worker processes queued `sync_runs` and connected Canvas accounts whose `last_synced_at` is older than `staleMinutes`.
+It requires `SUPABASE_SERVICE_ROLE_KEY` because it runs outside a user session.
+
+For the approved MVP setup, configure an external scheduler to call that URL every 2 minutes. Keep `CRON_SECRET` private and send it as the bearer token.

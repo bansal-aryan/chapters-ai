@@ -8,8 +8,9 @@ export function GET() {
     ok: true,
     services: {
       canvasEncryption: Boolean(process.env.CANVAS_TOKEN_ENCRYPTION_KEY),
-      canvasOAuth: Boolean(process.env.CANVAS_CLIENT_ID && process.env.CANVAS_CLIENT_SECRET),
+      canvasPersonalTokens: Boolean(process.env.CANVAS_TOKEN_ENCRYPTION_KEY),
       canvasSyncJob: Boolean((process.env.CRON_SECRET ?? process.env.CANVAS_SYNC_SECRET) && process.env.SUPABASE_SERVICE_ROLE_KEY),
+      openai: Boolean(process.env.OPENAI_API_KEY),
       supabase: Boolean(supabase)
     }
   });

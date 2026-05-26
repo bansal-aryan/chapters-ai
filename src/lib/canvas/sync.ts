@@ -15,11 +15,7 @@ import {
   normalizeFileResourceInsert,
   normalizeModuleResourceInsert
 } from "@/lib/canvas/normalizers";
-import {
-  decryptCanvasTokenPayload,
-  encryptCanvasTokenPayload,
-  getCanvasOAuthConfig
-} from "@/lib/canvas/oauth";
+import { decryptCanvasTokenPayload } from "@/lib/canvas/token-storage";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 type CanvasConnectionRow = Database["public"]["Tables"]["canvas_connections"]["Row"];
@@ -97,6 +93,51 @@ export async function syncQueuedCanvasRuns(
   return results;
 }
 
+export async function syncDueCanvasConnections(
+  supabase: SupabaseClient<Database>,
+  {
+    limit = 5,
+    staleMinutes = 2
+  }: {
+    limit?: number;
+    staleMinutes?: number;
+  } = {}
+): Promise<CanvasSyncResult[]> {
+  const cutoff = Date.now() - staleMinutes * 60 * 1000;
+  const { data, error } = await supabase
+    .from("canvas_connections")
+    .select("*")
+    .eq("status", "connected")
+    .not("token_reference", "is", null)
+    .order("last_synced_at", { ascending: true, nullsFirst: true })
+    .limit(Math.max(limit * 3, limit));
+
+  if (error || !data?.length) {
+    return [];
+  }
+
+  const dueConnections = data
+    .filter((connection) => {
+      if (!connection.last_synced_at) {
+        return true;
+      }
+
+      const lastSyncedAt = new Date(connection.last_synced_at).getTime();
+      return !Number.isFinite(lastSyncedAt) || lastSyncedAt <= cutoff;
+    })
+    .slice(0, limit);
+  const results: CanvasSyncResult[] = [];
+
+  for (const connection of dueConnections) {
+    results.push(await syncCanvasConnection(supabase, {
+      connection,
+      userId: connection.user_id
+    }));
+  }
+
+  return results;
+}
+
 async function syncRun(supabase: SupabaseClient<Database>, run: SyncRunRow) {
   const metadata = isRecord(run.metadata) ? run.metadata : {};
 
@@ -138,24 +179,8 @@ async function syncCanvasConnection(
 
   try {
     const token = decryptCanvasTokenPayload(connection.token_reference);
-    const oauthConfig = getCanvasOAuthConfig("https://chapters.ai");
     const client = new CanvasApiClient({
-      clientId: oauthConfig.ok ? oauthConfig.clientId : undefined,
-      clientSecret: oauthConfig.ok ? oauthConfig.clientSecret : undefined,
       domain: connection.canvas_domain,
-      onTokenRefresh: async (payload) => {
-        await supabase
-          .from("canvas_connections")
-          .update({
-            metadata: mergeMetadata(connection.metadata, {
-              token_expires_at: payload.expiresAt,
-              token_refreshed_at: new Date().toISOString()
-            }),
-            token_reference: encryptCanvasTokenPayload(payload)
-          })
-          .eq("id", connection.id)
-          .eq("user_id", userId);
-      },
       token
     });
 

@@ -16,7 +16,6 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import * as demoData from "@/data/demo-data";
 import { formatDateTime } from "@/lib/domain/format";
@@ -199,12 +198,12 @@ export default async function AssignmentPage({ params }: AssignmentPageProps) {
                 <div className="rounded-2xl bg-muted/50 p-4 text-sm leading-6 text-muted-foreground">
                   I can quiz you, explain the prompt, review your attempt, or build a study plan. I will cite the sources I use.
                 </div>
-                <div className="mt-4 flex gap-2">
-                  <Input aria-label="Ask about this assignment" placeholder="Check my answer..." />
-                  <Button size="icon" type="button">
+                <Button asChild className="mt-4 w-full" variant="secondary">
+                  <Link href={`/assistant?assignmentId=${assignment.id}`}>
+                    Ask in assistant
                     <MessageSquareText />
-                  </Button>
-                </div>
+                  </Link>
+                </Button>
               </CardContent>
             </Card>
 

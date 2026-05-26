@@ -7,18 +7,15 @@ This plan connects the locked UI to Canvas without changing the visual model of 
 The Settings page owns the connection flow.
 
 1. Student enters a Canvas domain such as `school.instructure.com`.
-2. `POST /api/canvas/connection` creates or updates `canvas_connections` with `status = pending`, requested scopes, and the normalized domain.
-3. OAuth redirects to Canvas and returns through a dedicated callback route, for example `/api/canvas/oauth/callback`.
-4. The callback exchanges the code for tokens, stores only an encrypted server-side `token_reference`, records `canvas_user_id`, sets `status = connected`, and queues a `sync_runs` row.
+2. Student pastes a Canvas personal access token.
+3. `POST /api/canvas/token` validates the token with Canvas.
+4. The app stores only an encrypted server-side `token_reference`, records `canvas_user_id`, sets `status = connected`, and queues a `sync_runs` row.
 5. Settings shows connection status, last sync, token health, and a manual refresh action.
 
 Existing tables already support most of this: `canvas_connections`, `sync_runs`, user-owned RLS, and `getWorkspaceSnapshotFromSupabase()`.
 
 Implemented now:
 
-- `/api/canvas/oauth/start` creates or updates a pending connection, sets a same-site OAuth state cookie, and redirects to Canvas.
-- `/api/canvas/oauth/callback` validates state, exchanges the code, encrypts the token payload into `canvas_connections.token_reference`, marks the connection connected, and queues a `sync_runs` row.
-- Settings submits directly into the OAuth start route.
 - `/api/canvas/token` accepts a user-provided Canvas personal access token, validates it with Canvas, encrypts it into `canvas_connections.token_reference`, marks the connection connected, and queues a `sync_runs` row.
 - `GET /api/canvas/connection` no longer returns `token_reference` to the client.
 
@@ -26,7 +23,7 @@ Implemented now:
 
 Create server-only Canvas modules:
 
-- `src/lib/canvas/oauth.ts`: builds auth URLs, validates state, exchanges code, refreshes tokens.
+- `src/lib/canvas/personal-token.ts`: validates personal access tokens and stores encrypted token references.
 - `src/lib/canvas/api.ts`: typed Canvas fetcher with pagination, rate-limit backoff, and token refresh.
 - `src/lib/canvas/normalizers.ts`: maps Canvas payloads into app domain records.
 - `src/lib/canvas/sync.ts`: runs the full and incremental sync jobs.
@@ -105,14 +102,14 @@ Settings:
 ## 5. UX States To Add
 
 - Empty connected state: Canvas connected but no courses found.
-- Pending state: domain saved, OAuth not finished.
+- Pending state: token setup not finished.
 - Syncing state: latest `sync_runs.status = running`.
 - Partial failure: show last successful sync and the failed scope.
 - Expired token: Settings action prompts reconnect, while existing synced data remains visible.
 
 ## 6. Build Order
 
-1. Add OAuth callback, token reference storage, and server-only Canvas fetcher.
+1. Add token reference storage and server-only Canvas fetcher.
 2. Add `external_calendar_events` or extend `manual_events` for provider-owned events.
 3. Implement full Canvas sync into courses, assignments, resources, search chunks, and events.
 4. Replace locked-demo data with `getWorkspaceSnapshotFromSupabase()` adapters for each page.

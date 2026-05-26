@@ -1,13 +1,7 @@
-import {
-  type CanvasTokenPayload,
-  refreshCanvasAccessToken
-} from "@/lib/canvas/oauth";
+import type { CanvasTokenPayload } from "@/lib/canvas/token-storage";
 
 type CanvasApiClientOptions = {
-  clientId?: string;
-  clientSecret?: string;
   domain: string;
-  onTokenRefresh?: (payload: CanvasTokenPayload) => Promise<void>;
   token: CanvasTokenPayload;
 };
 
@@ -75,11 +69,7 @@ export class CanvasApiClient {
     });
 
     if (response.status === 401 && !didRefresh) {
-      const refreshed = await this.refreshToken();
-
-      if (refreshed) {
-        return this.requestUrl(url, path, true);
-      }
+      throw new CanvasApiError("Canvas token was rejected. Reconnect your personal access token.", 401, path);
     }
 
     if (!response.ok) {
@@ -88,30 +78,6 @@ export class CanvasApiClient {
     }
 
     return response;
-  }
-
-  private async refreshToken() {
-    const refreshToken = this.token.refreshToken;
-    const { clientId, clientSecret, domain, onTokenRefresh } = this.options;
-
-    if (!refreshToken || !clientId || !clientSecret) {
-      return false;
-    }
-
-    const result = await refreshCanvasAccessToken({
-      clientId,
-      clientSecret,
-      domain,
-      refreshToken
-    });
-
-    if (!result.ok) {
-      return false;
-    }
-
-    this.token = result.payload;
-    await onTokenRefresh?.(result.payload);
-    return true;
   }
 
   private buildUrl(path: string, params: CanvasParams) {

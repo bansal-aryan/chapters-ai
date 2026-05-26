@@ -11,6 +11,9 @@ export type LockedAssignmentRow = {
   priority: AssignmentPriority;
   dueLabel: string;
   dueDate: string;
+  dueBucket?: "today" | "week" | "later" | "none" | "overdue";
+  priorityScore?: number;
+  source?: "canvas" | "manual";
   status: AssignmentStatus;
   accent: string;
 };
@@ -339,5 +342,5 @@ export const dashboardCards = [
   { label: "Due soon", value: "4", helper: "2 high priority" },
   { label: "Focus time", value: "2h 15m", helper: "This week" },
   { label: "Resources", value: "44", helper: "Across 4 folders" },
-  { label: "Canvas sync", value: "Ready", helper: "OAuth planned" }
+  { label: "Canvas sync", value: "Ready", helper: "Token setup" }
 ] as const;

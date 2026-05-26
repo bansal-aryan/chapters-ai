@@ -1,4 +1,5 @@
-import { assignments, courses, files, studyBlocks } from "@/data/demo-data";
+import { assignments, courses, files, manualEvents, studyBlocks } from "@/data/demo-data";
+import type { WorkspaceSnapshot } from "@/lib/supabase/workspace";
 
 export function getCourseById(courseId: string) {
   return courses.find((course) => course.id === courseId);
@@ -38,4 +39,38 @@ export function getRelatedAssignments(assignmentId: string) {
 
 export function getStudyBlocksForAssignment(assignmentId: string) {
   return studyBlocks.filter((block) => block.assignmentId === assignmentId);
+}
+
+export function getDemoWorkspaceSnapshot(): WorkspaceSnapshot {
+  return {
+    assignments,
+    canvasConnections: [
+      {
+        id: "demo-canvas",
+        domain: "demo.instructure.com",
+        lastSyncedAt: "2026-05-21T17:00:00-07:00",
+        scopes: ["personal_access_token"],
+        status: "connected"
+      }
+    ],
+    courses,
+    files,
+    manualEvents,
+    profile: {
+      fullName: "Alex Chen",
+      id: "demo-user",
+      schoolName: "Demo High School",
+      studentLevel: "high_school",
+      timezone: "America/Los_Angeles"
+    },
+    studentContext: {
+      aiNotes: "Demo learner who prefers structured next steps and short explanations.",
+      constraints: "Needs help prioritizing assignments around a busy school schedule.",
+      goals: "Stay on top of Canvas assignments and prepare focused study sessions.",
+      learningPreferences: {
+        format: "step-by-step"
+      }
+    },
+    studyBlocks
+  };
 }

@@ -18,6 +18,7 @@ import type {
   LockedWeekDay,
   ResourceFileType
 } from "@/components/locked-ui/data";
+import { getPriorityBand, getPriorityScore } from "@/lib/domain/prioritization";
 import { getAuthState } from "@/lib/supabase/auth-state";
 import { getWorkspaceSnapshotFromSupabase, type WorkspaceSnapshot } from "@/lib/supabase/workspace";
 
@@ -136,7 +137,8 @@ function buildAssignmentRows(
     .map((assignment) => {
       const course = coursesById.get(assignment.courseId);
       const dueDate = parseDate(assignment.dueDate);
-      const priority = getPriority(assignment, dueDate, now);
+      const priority = getPriorityBand(assignment, now);
+      const priorityScore = getPriorityScore(assignment, now);
 
       return {
         id: assignment.id,
@@ -144,8 +146,11 @@ function buildAssignmentRows(
         course: getCourseShortName(course),
         owner: getCourseOwner(course, assignment.source),
         priority,
+        dueBucket: getDueBucket(dueDate, now),
         dueLabel: getDueLabel(assignment, dueDate, now),
         dueDate: dueDate ? dateTimeFormatter.format(dueDate) : "No due date",
+        priorityScore,
+        source: assignment.source,
         status: isCompleted(assignment) ? ("completed" as const) : ("upcoming" as const),
         accent: getAccent(course)
       };
@@ -155,7 +160,7 @@ function buildAssignmentRows(
         return first.status === "upcoming" ? -1 : 1;
       }
 
-      return getPriorityRank(first.priority) - getPriorityRank(second.priority);
+      return (second.priorityScore ?? 0) - (first.priorityScore ?? 0);
     });
 }
 
@@ -182,7 +187,7 @@ function buildAllDayEvents(
           id: `assignment-${assignment.id}`,
           dayIndex,
           title: `${getCourseShortName(course)} due`,
-          tone: getToneForPriority(getPriority(assignment, dueDate, now))
+          tone: getToneForPriority(getPriorityBand(assignment, now))
         }
       ];
     });
@@ -498,51 +503,26 @@ function getDueLabel(assignment: WorkspaceAssignment, dueDate: Date | null, now:
   return `Due ${dateFormatter.format(dueDate)}`;
 }
 
-function getPriority(assignment: WorkspaceAssignment, dueDate: Date | null, now: Date): AssignmentPriority {
-  if (assignment.status === "missing") {
-    return "High";
-  }
-
-  if (isCompleted(assignment)) {
-    return "Low";
-  }
-
-  if (typeof assignment.priorityOverride === "number") {
-    if (assignment.priorityOverride <= 1) {
-      return "High";
-    }
-
-    if (assignment.priorityOverride <= 3) {
-      return "Medium";
-    }
-  }
-
+function getDueBucket(dueDate: Date | null, now: Date): LockedAssignmentRow["dueBucket"] {
   if (!dueDate) {
-    return "Low";
+    return "none";
   }
 
   const diffMs = dueDate.getTime() - now.getTime();
 
-  if (diffMs <= 2 * dayMs) {
-    return "High";
+  if (diffMs < 0) {
+    return "overdue";
+  }
+
+  if (isSameDate(dueDate, now)) {
+    return "today";
   }
 
   if (diffMs <= weekMs) {
-    return "Medium";
+    return "week";
   }
 
-  return "Low";
-}
-
-function getPriorityRank(priority: AssignmentPriority) {
-  switch (priority) {
-    case "High":
-      return 0;
-    case "Medium":
-      return 1;
-    case "Low":
-      return 2;
-  }
+  return "later";
 }
 
 function getToneForPriority(priority: AssignmentPriority): EventTone {

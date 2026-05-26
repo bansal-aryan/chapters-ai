@@ -176,8 +176,8 @@ export async function getWorkspaceSnapshotFromSupabase(
         title: block.title,
         startTime: block.starts_at,
         endTime: block.ends_at,
-      lockedByUser: block.locked_by_user,
-      source: block.source
+        lockedByUser: block.locked_by_user,
+        source: block.source
       })),
     profile: profileResult.data
       ? {

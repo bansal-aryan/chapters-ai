@@ -70,7 +70,7 @@ const pageContent = {
       {
         icon: BookOpen,
         title: "1. Connect Canvas",
-        body: "Students enter their Canvas domain and sign in through a secure OAuth-ready flow."
+        body: "Students enter their Canvas domain and connect with a personal access token for the MVP."
       },
       {
         icon: Target,
