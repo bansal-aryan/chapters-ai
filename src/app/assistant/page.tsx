@@ -1,7 +1,9 @@
 import { LockedAssistantPage } from "@/components/locked-ui/assistant-page";
 import { AppShell } from "@/components/layout/app-shell";
 import * as demoData from "@/data/demo-data";
+import { mapAssistantThreadSummary } from "@/lib/ai/chat-history";
 import { getLockedUiViewForCurrentUser } from "@/lib/locked-ui/view-model";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getWorkspaceSnapshotFromSupabase, type WorkspaceSnapshot } from "@/lib/supabase/workspace";
 
 export const dynamic = "force-dynamic";
@@ -20,12 +22,43 @@ export default async function AssistantPage({ searchParams }: AssistantPageProps
     getWorkspaceSnapshotFromSupabase({ allowEmpty: true })
   ]);
   const context = buildAssistantContext({ assignmentId, courseId, snapshot });
+  const initialThreads = await getInitialAssistantThreads(snapshot);
 
   return (
     <AppShell>
-      <LockedAssistantPage context={context} userName={liveView?.firstName} />
+      <LockedAssistantPage context={context} initialThreads={initialThreads} userName={liveView?.firstName} />
     </AppShell>
   );
+}
+
+async function getInitialAssistantThreads(snapshot: WorkspaceSnapshot | null) {
+  const supabase = await createServerSupabaseClient();
+
+  if (!supabase) {
+    return [];
+  }
+
+  const {
+    data: { user },
+    error: userError
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("chat_threads")
+    .select("id, title, scope, course_id, assignment_id, created_at, updated_at")
+    .eq("user_id", user.id)
+    .order("updated_at", { ascending: false })
+    .limit(30);
+
+  if (error || !data) {
+    return [];
+  }
+
+  return data.map((thread) => mapAssistantThreadSummary(thread, snapshot));
 }
 
 function buildAssistantContext({

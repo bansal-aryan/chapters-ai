@@ -3,19 +3,21 @@
 import {
   BookOpen,
   CircleHelp,
+  History,
   ListChecks,
   Loader2,
   MessageSquareText,
+  Plus,
   RotateCcw,
   Send,
   Sparkles,
-  Target,
-  Trash2
+  Target
 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { LockedPage, LockedPageTitle } from "./primitives";
 import { cn } from "@/lib/utils";
+import type { AssistantThreadSummary, StoredAssistantChatMessage } from "@/lib/ai/chat-history";
 import type { TutorResponse } from "@/lib/ai/tutor";
 import type { SearchResult } from "@/types";
 
@@ -31,6 +33,7 @@ type AssistantContext = {
 
 type LockedAssistantPageProps = {
   context: AssistantContext;
+  initialThreads?: AssistantThreadSummary[];
   userName?: string;
 };
 
@@ -43,27 +46,44 @@ type ChatMessage = {
   tutorResponse?: TutorResponse;
 };
 
-export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssistantPageProps) {
+export function LockedAssistantPage({ context, initialThreads = [], userName = "Alex" }: LockedAssistantPageProps) {
   const nextMessageId = useRef(0);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
   const [prompt, setPrompt] = useState("");
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [threads, setThreads] = useState<AssistantThreadSummary[]>(initialThreads);
+  const [activeThread, setActiveThread] = useState<AssistantThreadSummary | null>(null);
+  const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [retryMessage, setRetryMessage] = useState("");
-  const scope = context.type === "assignment" ? "assignment" : context.type === "class" ? "class" : "global";
+  const baseScope = context.type === "assignment" ? "assignment" : context.type === "class" ? "class" : "global";
+  const displayContext = activeThread
+    ? {
+        assignmentId: activeThread.assignmentId,
+        courseId: activeThread.courseId,
+        sourceTitles:
+          activeThread.assignmentId === context.assignmentId || activeThread.courseId === context.courseId
+            ? context.sourceTitles
+            : [],
+        starterPrompts: context.starterPrompts,
+        subtitle: activeThread.contextSubtitle || "Saved chat",
+        title: activeThread.contextTitle,
+        type: activeThread.scope
+      }
+    : context;
   const greeting = useMemo(() => {
-    if (context.type === "assignment") {
-      return `I am focused on ${context.title}.`;
+    if (displayContext.type === "assignment") {
+      return `I am focused on ${displayContext.title}.`;
     }
 
-    if (context.type === "class") {
-      return `I am focused on ${context.title}.`;
+    if (displayContext.type === "class") {
+      return `I am focused on ${displayContext.title}.`;
     }
 
     return `Hi ${userName}, what should we untangle first?`;
-  }, [context.title, context.type, userName]);
+  }, [displayContext.title, displayContext.type, userName]);
 
   useEffect(() => {
     scrollAnchorRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -111,11 +131,11 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
 
     const response = await fetch("/api/assistant", {
       body: JSON.stringify({
-        assignmentId: context.assignmentId,
-        courseId: context.courseId,
+        assignmentId: activeThread?.assignmentId ?? context.assignmentId,
+        courseId: activeThread?.courseId ?? context.courseId,
         message,
         recentMessages,
-        scope,
+        scope: activeThread?.scope ?? baseScope,
         threadId
       }),
       headers: {
@@ -132,6 +152,7 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
             id?: string;
           };
           provider?: "fallback" | "openai";
+          thread?: AssistantThreadSummary | null;
           threadId?: string;
           tutorResponse?: TutorResponse;
         }
@@ -146,6 +167,11 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
 
     if (payload?.threadId) {
       setThreadId(payload.threadId);
+    }
+
+    if (payload?.thread) {
+      setActiveThread(payload.thread);
+      setThreads((current) => upsertThread(current, payload.thread as AssistantThreadSummary));
     }
 
     setMessages((current) => [
@@ -170,9 +196,43 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
   function clearChat() {
     setMessages([]);
     setThreadId(null);
+    setActiveThread(null);
     setError("");
     setRetryMessage("");
     setPrompt("");
+  }
+
+  async function openThread(thread: AssistantThreadSummary) {
+    if (loading || loadingThreadId) {
+      return;
+    }
+
+    setLoadingThreadId(thread.id);
+    setError("");
+    setRetryMessage("");
+    setPrompt("");
+
+    const response = await fetch(`/api/assistant?threadId=${encodeURIComponent(thread.id)}`);
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: string;
+          messages?: StoredAssistantChatMessage[];
+          thread?: AssistantThreadSummary | null;
+          threads?: AssistantThreadSummary[];
+        }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error ?? "Could not load chat history.");
+      setLoadingThreadId(null);
+      return;
+    }
+
+    setThreadId(payload?.thread?.id ?? thread.id);
+    setActiveThread(payload?.thread ?? thread);
+    setMessages((payload?.messages ?? []).map((message) => ({ ...message })));
+    setThreads((current) => payload?.threads ?? upsertThread(current, payload?.thread ?? thread));
+    setLoadingThreadId(null);
   }
 
   return (
@@ -185,7 +245,7 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
             onClick={clearChat}
             type="button"
           >
-            <Trash2 className="size-3.5" />
+            <Plus className="size-3.5" />
             New chat
           </button>
         ) : null}
@@ -196,15 +256,15 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-violet-700">
-                {context.type === "assignment" ? "Assignment" : context.type === "class" ? "Class" : "Workspace"}
+                {displayContext.type === "assignment" ? "Assignment" : displayContext.type === "class" ? "Class" : "Workspace"}
               </span>
-              <h2 className="truncate text-[15px] font-semibold text-zinc-950">{context.title}</h2>
+              <h2 className="truncate text-[15px] font-semibold text-zinc-950">{displayContext.title}</h2>
             </div>
-            <p className="mt-2 text-[12px] leading-5 text-zinc-500">{context.subtitle}</p>
+            <p className="mt-2 text-[12px] leading-5 text-zinc-500">{displayContext.subtitle}</p>
           </div>
-          {context.sourceTitles.length ? (
+          {displayContext.sourceTitles.length ? (
             <div className="flex max-w-full flex-wrap gap-2 sm:max-w-[360px] sm:justify-end">
-              {context.sourceTitles.map((title) => (
+              {displayContext.sourceTitles.map((title) => (
                 <span className="rounded-full border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-500" key={title}>
                   {title}
                 </span>
@@ -212,6 +272,51 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
             </div>
           ) : null}
         </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-zinc-200 bg-white p-3 shadow-[0_12px_30px_rgba(24,24,27,0.035)]">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-zinc-500">
+            <History className="size-3.5 text-violet-600" />
+            Recent chats
+          </div>
+          <button
+            className="inline-flex h-8 items-center gap-2 rounded-md border border-zinc-200 px-2.5 text-[11px] font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            onClick={clearChat}
+            type="button"
+          >
+            <Plus className="size-3.5" />
+            New
+          </button>
+        </div>
+        {threads.length ? (
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {threads.map((thread) => (
+              <button
+                className={cn(
+                  "flex min-w-[190px] max-w-[220px] flex-col rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400",
+                  activeThread?.id === thread.id
+                    ? "border-violet-200 bg-violet-50"
+                    : "border-zinc-200 bg-white hover:bg-zinc-50"
+                )}
+                disabled={loadingThreadId === thread.id}
+                key={thread.id}
+                onClick={() => openThread(thread)}
+                type="button"
+              >
+                <span className="truncate text-[12px] font-semibold text-zinc-900">{thread.title}</span>
+                <span className="mt-1 truncate text-[11px] text-zinc-500">{thread.contextTitle}</span>
+                <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                  {loadingThreadId === thread.id ? "Loading..." : formatSavedDate(thread.updatedAt)}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-[12px] leading-5 text-zinc-500">
+            Your assistant chats will appear here after you send a message.
+          </p>
+        )}
       </section>
 
       <section className="flex min-h-[420px] flex-1 flex-col gap-5 py-6">
@@ -228,7 +333,7 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
             </div>
 
             <div className="grid w-full gap-3 sm:grid-cols-3">
-              {context.starterPrompts.map((starterPrompt) => (
+              {displayContext.starterPrompts.map((starterPrompt) => (
                 <button
                   className="flex min-h-[76px] flex-col items-start justify-center rounded-lg border border-zinc-200 bg-white px-4 text-left shadow-[0_10px_26px_rgba(24,24,27,0.035)] transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={loading}
@@ -285,7 +390,7 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
           disabled={loading}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={context.type === "assignment" ? "Ask about this assignment..." : "Ask anything..."}
+          placeholder={displayContext.type === "assignment" ? "Ask about this assignment..." : "Ask anything..."}
           rows={2}
           value={prompt}
         />
@@ -320,7 +425,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       {isUser ? (
         <p className="whitespace-pre-wrap">{message.content}</p>
       ) : message.tutorResponse ? (
-        <TutorAnswer response={message.tutorResponse} />
+        <TutorAnswer response={message.tutorResponse} showSources={!message.citations?.length} />
       ) : (
         <p className="whitespace-pre-wrap">{message.content}</p>
       )}
@@ -347,7 +452,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   );
 }
 
-function TutorAnswer({ response }: { response: TutorResponse }) {
+function TutorAnswer({ response, showSources }: { response: TutorResponse; showSources: boolean }) {
   return (
     <div className="space-y-3">
       <div>
@@ -394,6 +499,12 @@ function TutorAnswer({ response }: { response: TutorResponse }) {
           <span>Needed to go deeper: {response.missingContext.join(", ")}.</span>
         </div>
       ) : null}
+
+      {showSources && response.citations.length ? (
+        <p className="text-[11px] font-medium leading-5 text-zinc-500">
+          Sources: {response.citations.map((citation) => citation.title).join(", ")}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -408,4 +519,20 @@ function getCitationHref(result: SearchResult) {
   }
 
   return "/resources";
+}
+
+function upsertThread(threads: AssistantThreadSummary[], thread: AssistantThreadSummary) {
+  return [thread, ...threads.filter((item) => item.id !== thread.id)].slice(0, 30);
+}
+
+const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatSavedDate(value: string) {
+  const date = new Date(value);
+
+  if (!Number.isFinite(date.getTime())) {
+    return "Saved";
+  }
+
+  return `${monthLabels[date.getUTCMonth()]} ${date.getUTCDate()}`;
 }

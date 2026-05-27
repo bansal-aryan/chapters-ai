@@ -10,6 +10,11 @@ import {
   detectTutorIntent,
   formatTutorResponse
 } from "@/lib/ai/tutor";
+import {
+  type StoredAssistantChatMessage,
+  mapAssistantThreadSummary,
+  mapStoredAssistantMessage
+} from "@/lib/ai/chat-history";
 import { getDemoWorkspaceSnapshot } from "@/lib/domain/demo-store";
 import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import type { Json } from "@/lib/supabase/database.types";
@@ -29,6 +34,9 @@ type AssistantRequest = {
 
 type ChatScope = "global" | "class" | "assignment";
 
+const chatThreadSelect = "id, title, scope, course_id, assignment_id, created_at, updated_at";
+const chatMessageSelect = "id, role, content, metadata, created_at";
+
 function normalizeScope(value: unknown): ChatScope {
   if (value === "class" || value === "assignment" || value === "global") {
     return value;
@@ -39,6 +47,88 @@ function normalizeScope(value: unknown): ChatScope {
 
 function normalizeOptionalId(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export async function GET(request: NextRequest) {
+  const limit = checkRateLimit(request, "assistant-history", {
+    limit: 60,
+    windowMs: 5 * 60 * 1000
+  });
+
+  if (!limit.ok) {
+    return rateLimitResponse(limit);
+  }
+
+  if (request.cookies.get("chapters_demo_session")?.value === "1") {
+    return NextResponse.json({ messages: [], threads: [] }, { headers: limit.headers });
+  }
+
+  const auth = await getAuthenticatedSupabase();
+
+  if (!isAuthResult(auth)) {
+    return auth.error;
+  }
+
+  const { supabase, user } = auth;
+  const requestedThreadId = normalizeOptionalId(request.nextUrl.searchParams.get("threadId"));
+  const snapshot = await getWorkspaceSnapshotFromSupabase({ allowEmpty: true });
+  const { data: threadRows, error: threadsError } = await supabase
+    .from("chat_threads")
+    .select(chatThreadSelect)
+    .eq("user_id", user.id)
+    .order("updated_at", { ascending: false })
+    .limit(30);
+
+  if (threadsError) {
+    return NextResponse.json({ error: threadsError.message }, { status: 400 });
+  }
+
+  const threads = (threadRows ?? []).map((thread) => mapAssistantThreadSummary(thread, snapshot));
+  let activeThread = requestedThreadId ? threads.find((thread) => thread.id === requestedThreadId) ?? null : null;
+  let messages: StoredAssistantChatMessage[] = [];
+
+  if (requestedThreadId) {
+    let ownedThreadId: string | null = activeThread?.id ?? null;
+
+    if (!ownedThreadId) {
+      const { data: threadRow, error: threadError } = await supabase
+        .from("chat_threads")
+        .select(chatThreadSelect)
+        .eq("id", requestedThreadId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (threadError) {
+        return NextResponse.json({ error: threadError.message }, { status: 400 });
+      }
+
+      if (!threadRow) {
+        return NextResponse.json({ error: "Chat thread not found." }, { status: 404 });
+      }
+
+      ownedThreadId = threadRow.id;
+      activeThread = mapAssistantThreadSummary(threadRow, snapshot);
+    }
+
+    const { data: messageRows, error: messagesError } = await supabase
+      .from("chat_messages")
+      .select(chatMessageSelect)
+      .eq("thread_id", ownedThreadId)
+      .eq("user_id", user.id)
+      .in("role", ["assistant", "user"])
+      .order("created_at", { ascending: true })
+      .limit(100);
+
+    if (messagesError) {
+      return NextResponse.json({ error: messagesError.message }, { status: 400 });
+    }
+
+    messages = (messageRows ?? [])
+      .map(mapStoredAssistantMessage)
+      .filter((message): message is StoredAssistantChatMessage => Boolean(message));
+  }
+
+  return NextResponse.json({ messages, thread: activeThread, threads }, { headers: limit.headers });
 }
 
 export async function POST(request: NextRequest) {
@@ -102,6 +192,18 @@ export async function POST(request: NextRequest) {
           thread_id: threadId
         },
         provider: "fallback",
+        thread: mapAssistantThreadSummary(
+          {
+            assignment_id: assignmentId,
+            course_id: courseId,
+            created_at: new Date().toISOString(),
+            id: threadId,
+            scope,
+            title: message.slice(0, 72),
+            updated_at: new Date().toISOString()
+          },
+          snapshot
+        ),
         tutorResponse,
         threadId
       },
@@ -192,11 +294,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: assistantError.message }, { status: 400 });
   }
 
+  const { data: threadRow } = await supabase
+    .from("chat_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId)
+    .eq("user_id", user.id)
+    .select(chatThreadSelect)
+    .single();
+
   return NextResponse.json(
     {
       citations: scopedResults,
       message: assistantMessage,
       provider: openAIResult ? "openai" : "fallback",
+      thread: threadRow ? mapAssistantThreadSummary(threadRow, snapshot) : null,
       tutorResponse,
       threadId
     },
@@ -240,6 +351,7 @@ export async function POST(request: NextRequest) {
       .from("chat_threads")
       .select("id")
       .eq("id", threadId)
+      .eq("user_id", user.id)
       .maybeSingle();
 
     if (error || !data) {
