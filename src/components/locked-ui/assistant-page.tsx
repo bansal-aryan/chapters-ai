@@ -2,17 +2,21 @@
 
 import {
   BookOpen,
+  CircleHelp,
+  ListChecks,
   Loader2,
   MessageSquareText,
   RotateCcw,
   Send,
   Sparkles,
+  Target,
   Trash2
 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { LockedPage, LockedPageTitle } from "./primitives";
 import { cn } from "@/lib/utils";
+import type { TutorResponse } from "@/lib/ai/tutor";
 import type { SearchResult } from "@/types";
 
 type AssistantContext = {
@@ -36,6 +40,7 @@ type ChatMessage = {
   id: string;
   provider?: "fallback" | "openai";
   role: "assistant" | "user";
+  tutorResponse?: TutorResponse;
 };
 
 export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssistantPageProps) {
@@ -128,6 +133,7 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
           };
           provider?: "fallback" | "openai";
           threadId?: string;
+          tutorResponse?: TutorResponse;
         }
       | null;
 
@@ -149,7 +155,8 @@ export function LockedAssistantPage({ context, userName = "Alex" }: LockedAssist
         content: payload?.message?.content ?? "I could not generate a response.",
         id: payload?.message?.id ?? createMessageId("assistant"),
         provider: payload?.provider,
-        role: "assistant"
+        role: "assistant",
+        tutorResponse: payload?.tutorResponse
       }
     ]);
     setLoading(false);
@@ -310,7 +317,13 @@ function ChatBubble({ message }: { message: ChatMessage }) {
           : "mr-auto border-zinc-200 bg-white text-zinc-800 shadow-[0_10px_26px_rgba(24,24,27,0.035)]"
       )}
     >
-      <p className="whitespace-pre-wrap">{message.content}</p>
+      {isUser ? (
+        <p className="whitespace-pre-wrap">{message.content}</p>
+      ) : message.tutorResponse ? (
+        <TutorAnswer response={message.tutorResponse} />
+      ) : (
+        <p className="whitespace-pre-wrap">{message.content}</p>
+      )}
       {!isUser && message.citations?.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {message.citations.slice(0, 4).map((citation) => (
@@ -331,6 +344,57 @@ function ChatBubble({ message }: { message: ChatMessage }) {
         </p>
       ) : null}
     </article>
+  );
+}
+
+function TutorAnswer({ response }: { response: TutorResponse }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-[13px] font-medium leading-6 text-zinc-900">{response.directAnswer}</p>
+        <p className="mt-2 border-l-2 border-violet-200 pl-3 text-[12px] leading-5 text-zinc-600">
+          {response.assignmentConnection}
+        </p>
+      </div>
+
+      {response.nextSteps.length ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+            <ListChecks className="size-3.5 text-violet-600" />
+            Next steps
+          </div>
+          <ol className="space-y-2">
+            {response.nextSteps.map((step, index) => (
+              <li className="grid grid-cols-[20px_1fr] gap-2 text-[12px] leading-5 text-zinc-700" key={`${step.label}-${index}`}>
+                <span className="flex size-5 items-center justify-center rounded-full bg-violet-50 text-[10px] font-bold text-violet-700">
+                  {index + 1}
+                </span>
+                <span>
+                  <strong className="font-semibold text-zinc-900">{step.label}:</strong> {step.detail}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {response.tutorQuestion ? (
+        <div className="border-l-2 border-zinc-200 pl-3">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+            <CircleHelp className="size-3.5 text-violet-600" />
+            Tutor question
+          </div>
+          <p className="mt-1 text-[12px] font-medium leading-5 text-zinc-800">{response.tutorQuestion}</p>
+        </div>
+      ) : null}
+
+      {response.needsMoreContext && response.missingContext.length ? (
+        <div className="flex items-start gap-2 text-[12px] leading-5 text-amber-800">
+          <Target className="mt-0.5 size-3.5 shrink-0" />
+          <span>Needed to go deeper: {response.missingContext.join(", ")}.</span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

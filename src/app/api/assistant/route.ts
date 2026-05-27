@@ -1,11 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { buildAssistantResponse } from "@/lib/ai/assistant";
+import { buildAssistantTutorResponse } from "@/lib/ai/assistant";
 import {
   type AssistantHistoryMessage,
   generateOpenAIAssistantResponse
 } from "@/lib/ai/openai-assistant";
+import {
+  buildTutorContextPacket,
+  buildTutorSearchQuery,
+  detectTutorIntent,
+  formatTutorResponse
+} from "@/lib/ai/tutor";
 import { getDemoWorkspaceSnapshot } from "@/lib/domain/demo-store";
 import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
+import type { Json } from "@/lib/supabase/database.types";
 import { searchDemoWorkspaceText, searchWorkspaceText } from "@/lib/supabase/search";
 import { getAuthenticatedSupabase, isAuthResult } from "@/lib/supabase/session";
 import { getWorkspaceSnapshotFromSupabase, type WorkspaceSnapshot } from "@/lib/supabase/workspace";
@@ -63,12 +70,13 @@ export async function POST(request: NextRequest) {
 
   if (request.cookies.get("chapters_demo_session")?.value === "1") {
     const snapshot = getDemoWorkspaceSnapshot();
-    const results = withScopedResults(snapshot, searchDemoWorkspaceText(message, { courseId, limit: 5 }), {
+    const searchQuery = buildTutorSearchQuery({ assignmentId, courseId, message, snapshot });
+    const results = withScopedResults(snapshot, searchDemoWorkspaceText(searchQuery, { courseId, limit: 8 }), {
       assignmentId,
       courseId
     });
     const threadId = requestedThreadId ?? `demo-thread-${scope}-${assignmentId ?? courseId ?? "global"}`;
-    const assistantContent = buildAssistantResponse({
+    const tutorResponse = buildAssistantTutorResponse({
       assignmentId,
       courseId,
       message,
@@ -76,6 +84,7 @@ export async function POST(request: NextRequest) {
       results,
       snapshot
     });
+    const assistantContent = formatTutorResponse(tutorResponse);
 
     return NextResponse.json(
       {
@@ -84,9 +93,16 @@ export async function POST(request: NextRequest) {
           citation_resource_ids: results.map((result) => result.fileResourceId).filter(Boolean),
           content: assistantContent,
           id: `demo-message-${Date.now()}`,
+          metadata: {
+            intent: tutorResponse.intent,
+            provider: "fallback",
+            tutor_response: tutorResponse
+          },
           role: "assistant",
           thread_id: threadId
         },
+        provider: "fallback",
+        tutorResponse,
         threadId
       },
       { headers: limit.headers }
@@ -121,22 +137,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: userMessageResult.error.message }, { status: 400 });
   }
 
-  const [snapshot, results] = await Promise.all([
-    getWorkspaceSnapshotFromSupabase({ allowEmpty: true }),
-    searchWorkspaceText(supabase, message, { courseId, limit: 5 })
-  ]);
+  const snapshot = await getWorkspaceSnapshotFromSupabase({ allowEmpty: true });
+  const intent = detectTutorIntent(message);
+  const searchQuery = buildTutorSearchQuery({ assignmentId, courseId, message, snapshot });
+  const results = await searchWorkspaceText(supabase, searchQuery, { courseId, limit: 8 });
   const scopedResults = withScopedResults(snapshot, results, { assignmentId, courseId });
-  const openAIResult = await generateOpenAIAssistantResponse({
+  const context = buildTutorContextPacket({
     assignmentId,
     courseId,
+    recentMessages,
+    results: scopedResults,
+    snapshot
+  });
+  const openAIResult = await generateOpenAIAssistantResponse({
+    assignmentId,
+    context,
+    courseId,
+    intent,
     message,
     recentMessages,
     results: scopedResults,
     snapshot
   });
-  const assistantContent =
-    openAIResult?.content ??
-    buildAssistantResponse({ assignmentId, courseId, message, recentMessages, results: scopedResults, snapshot });
+  const tutorResponse =
+    openAIResult?.tutorResponse ??
+    buildAssistantTutorResponse({ assignmentId, courseId, message, recentMessages, results: scopedResults, snapshot });
+  const assistantContent = openAIResult?.content ?? formatTutorResponse(tutorResponse);
   const citationResourceIds = scopedResults
     .map((result) => result.fileResourceId)
     .filter((id): id is string => Boolean(id));
@@ -149,13 +175,15 @@ export async function POST(request: NextRequest) {
       role: "assistant",
       content: assistantContent,
       citation_resource_ids: citationResourceIds,
-      metadata: {
+      metadata: removeUndefined({
+        intent: tutorResponse.intent,
         model: openAIResult?.model,
         openai_response_id: openAIResult?.responseId,
         policy: "guide_do_not_complete",
         provider: openAIResult ? "openai" : "fallback",
-        search_result_ids: scopedResults.map((result) => result.id)
-      }
+        search_result_ids: scopedResults.map((result) => result.id),
+        tutor_response: tutorResponse as unknown as Json
+      })
     })
     .select("*")
     .single();
@@ -169,6 +197,7 @@ export async function POST(request: NextRequest) {
       citations: scopedResults,
       message: assistantMessage,
       provider: openAIResult ? "openai" : "fallback",
+      tutorResponse,
       threadId
     },
     { headers: limit.headers }
@@ -315,6 +344,23 @@ function withScopedResults(
         });
       }
     });
+
+    assignment.relatedAssignmentIds.forEach((relatedAssignmentId) => {
+      const relatedAssignment = snapshot.assignments.find((item) => item.id === relatedAssignmentId);
+
+      if (relatedAssignment) {
+        scopedResults.push({
+          assignmentId: relatedAssignment.id,
+          citation: courseNameById.get(relatedAssignment.courseId) ?? "Related assignment",
+          courseId: relatedAssignment.courseId,
+          id: relatedAssignment.id,
+          relevance: 0.9,
+          sourceType: "assignment",
+          summary: relatedAssignment.summary,
+          title: relatedAssignment.title
+        });
+      }
+    });
   } else if (courseId) {
     snapshot.files
       .filter((file) => file.courseId === courseId)
@@ -343,4 +389,8 @@ function withScopedResults(
   });
 
   return [...deduped.values()].slice(0, 8);
+}
+
+function removeUndefined(value: Record<string, Json | undefined>) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Json;
 }

@@ -55,9 +55,9 @@ function buildAssistantContext({
       courseId: assignment.courseId,
       sourceTitles: relatedFiles.map((file) => file.title).slice(0, 3),
       starterPrompts: [
-        `Make a study plan for ${assignment.title}`,
-        `Quiz me on ${assignment.title}`,
-        `Help me understand the prompt for ${assignment.title}`
+        `Break down the exact prompt for ${assignment.title}`,
+        `Make a 45-minute plan for ${assignment.title}`,
+        `Quiz me one question at a time on ${assignment.title}`
       ],
       subtitle: course ? `${course.name} - ${assignment.status.replaceAll("_", " ")}` : assignment.status.replaceAll("_", " "),
       title: assignment.title,
@@ -74,8 +74,8 @@ function buildAssistantContext({
         .slice(0, 3),
       starterPrompts: [
         `What should I review next for ${course.name}?`,
-        `Quiz me on recent ${course.name} material`,
-        `Summarize my highest priority ${course.name} assignments`
+        `Quiz me one question at a time on recent ${course.name} material`,
+        `Summarize my highest-priority ${course.name} assignment`
       ],
       subtitle: [course.code, course.term].filter(Boolean).join(" - "),
       title: course.name,
@@ -87,7 +87,7 @@ function buildAssistantContext({
     sourceTitles: [],
     starterPrompts: [
       "What should I study first today?",
-      "Build a 45 minute study plan",
+      "Build a 45-minute plan from my priorities",
       "Quiz me on my highest priority assignment"
     ],
     subtitle: "Uses your assignments, schedule, files, and previous coursework.",

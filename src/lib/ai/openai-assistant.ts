@@ -1,5 +1,13 @@
 import type { SearchResult } from "@/types";
 import { aiTutorPolicy } from "@/lib/ai/policy";
+import {
+  type TutorContextPacket,
+  type TutorIntent,
+  type TutorResponse,
+  ensureTutorResponseQuality,
+  formatTutorResponse,
+  parseTutorResponse
+} from "@/lib/ai/tutor";
 import type { WorkspaceSnapshot } from "@/lib/supabase/workspace";
 
 export type AssistantHistoryMessage = {
@@ -9,7 +17,9 @@ export type AssistantHistoryMessage = {
 
 type GenerateAssistantInput = {
   assignmentId?: string | null;
+  context: TutorContextPacket;
   courseId?: string | null;
+  intent: TutorIntent;
   message: string;
   recentMessages?: AssistantHistoryMessage[];
   results: SearchResult[];
@@ -25,11 +35,14 @@ export type OpenAIAssistantResult = {
   content: string;
   model: string;
   responseId?: string;
+  tutorResponse: TutorResponse;
 };
 
 export async function generateOpenAIAssistantResponse({
   assignmentId,
+  context,
   courseId,
+  intent,
   message,
   recentMessages = [],
   results,
@@ -44,26 +57,29 @@ export async function generateOpenAIAssistantResponse({
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     body: JSON.stringify({
-      input: buildInput({ assignmentId, courseId, message, recentMessages, results, snapshot }),
+      input: buildInput({ assignmentId, context, courseId, intent, message, recentMessages, results, snapshot }),
       instructions: [
-        "You are chapters.ai, a calm AI study copilot for high school and college students.",
+        "You are chapters.ai, an assignment-specific AI tutor for high school and college students.",
         aiTutorPolicy.productRole,
         aiTutorPolicy.homeworkBoundary,
         aiTutorPolicy.citationRequirement,
-        "Use the student's synced assignments, previous assignments, files, search results, and recent chat turns as context.",
-        "If an assignment is selected, answer for that assignment first. If no assignment is selected, prioritize the most urgent unfinished work.",
-        "Use this answer shape unless the user asks for something else: direct answer, next 2-4 steps, sources or what is missing.",
+        "Use the selected assignment and sources as the center of the answer. Do not drift into unrelated classes unless no assignment is selected or the student asks to prioritize across classes.",
+        "Be a tutor: diagnose what the assignment is asking, give concrete next moves, ask one useful question, and adapt to the student's attempt.",
+        "Every response must make a specific connection to the selected assignment title, prompt, source, rubric, or due/status context.",
         "For quiz requests, ask one question at a time and wait for the student's answer.",
         "For essay or answer checking, ask for the student's attempt before giving corrections.",
         "Do not fabricate course facts. If context is insufficient, ask for the missing material.",
-        "Keep replies concise, specific, and warm. Avoid generic disclaimers beyond the necessary tutoring boundary."
+        "Keep replies concise, specific, and warm. Avoid generic productivity advice."
       ].join("\n"),
       max_output_tokens: 700,
       metadata: {
         product: "chapters-ai",
         surface: "assistant"
       },
-      model
+      model,
+      text: {
+        format: tutorResponseTextFormat
+      }
     }),
     headers: {
       authorization: `Bearer ${apiKey}`,
@@ -77,14 +93,17 @@ export async function generateOpenAIAssistantResponse({
   }
 
   const payload = (await response.json().catch(() => null)) as OpenAIResponse | null;
-  const content = payload?.output_text?.trim();
+  const parsedResponse = ensureTutorResponseQuality(parseTutorResponse(payload?.output_text) ?? nullTutorResponse(intent), context);
+  const content = formatTutorResponse(parsedResponse);
 
-  return content ? { content, model, responseId: payload?.id } : null;
+  return content ? { content, model, responseId: payload?.id, tutorResponse: parsedResponse } : null;
 }
 
 function buildInput({
   assignmentId,
+  context,
   courseId,
+  intent,
   message,
   recentMessages = [],
   results,
@@ -125,7 +144,17 @@ function buildInput({
     "Student workspace context:",
     JSON.stringify(
       {
+        assignmentScopedRules: context.selectedAssignment
+          ? [
+              `Selected assignment title: ${context.selectedAssignment.title}`,
+              "Answer this assignment first.",
+              "Only cite sources in the supplied sources or retrievedSources arrays.",
+              "If you need the student's draft/attempt, ask for it instead of inventing one."
+            ]
+          : [],
+        contextPacket: context,
         currentDate: new Date().toISOString(),
+        detectedIntent: intent,
         assignments: assignmentContext,
         files: fileContext,
         recentMessages: recentMessages.slice(-8),
@@ -156,3 +185,113 @@ function buildInput({
     `Student question: ${message}`
   ].join("\n");
 }
+
+function nullTutorResponse(intent: TutorIntent): TutorResponse {
+  return {
+    assignmentConnection: "I could not read enough structured context for this answer.",
+    citations: [],
+    confidence: "low",
+    directAnswer: "I need a little more context before I can tutor this well.",
+    intent,
+    missingContext: ["assignment context"],
+    needsMoreContext: true,
+    nextSteps: [
+      {
+        detail: "Open the assignment again or paste the exact prompt.",
+        label: "Restore context"
+      }
+    ],
+    tutorQuestion: "What exact assignment prompt should we work from?"
+  };
+}
+
+const tutorResponseTextFormat = {
+  description: "Structured tutor response for a student assignment assistant.",
+  name: "assignment_tutor_response",
+  schema: {
+    additionalProperties: false,
+    properties: {
+      assignmentConnection: {
+        type: "string"
+      },
+      citations: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            reason: {
+              type: "string"
+            },
+            title: {
+              type: "string"
+            }
+          },
+          required: ["title", "reason"],
+          type: "object"
+        },
+        type: "array"
+      },
+      confidence: {
+        enum: ["high", "medium", "low"],
+        type: "string"
+      },
+      directAnswer: {
+        type: "string"
+      },
+      intent: {
+        enum: [
+          "check_attempt",
+          "explain_prompt",
+          "general",
+          "priority",
+          "quiz",
+          "stuck_hint",
+          "study_plan",
+          "summarize_material"
+        ],
+        type: "string"
+      },
+      missingContext: {
+        items: {
+          type: "string"
+        },
+        type: "array"
+      },
+      needsMoreContext: {
+        type: "boolean"
+      },
+      nextSteps: {
+        items: {
+          additionalProperties: false,
+          properties: {
+            detail: {
+              type: "string"
+            },
+            label: {
+              type: "string"
+            }
+          },
+          required: ["label", "detail"],
+          type: "object"
+        },
+        type: "array"
+      },
+      tutorQuestion: {
+        type: "string"
+      }
+    },
+    required: [
+      "intent",
+      "directAnswer",
+      "assignmentConnection",
+      "nextSteps",
+      "tutorQuestion",
+      "citations",
+      "needsMoreContext",
+      "missingContext",
+      "confidence"
+    ],
+    type: "object"
+  },
+  strict: true,
+  type: "json_schema"
+} as const;
