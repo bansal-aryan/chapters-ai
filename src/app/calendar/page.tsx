@@ -11,6 +11,7 @@ export default async function CalendarPage() {
     <AppShell>
       <LockedCalendarPage
         allDayEvents={liveView?.allDayEvents}
+        calendarWeekStart={liveView?.calendarWeekStart}
         calendarEvents={liveView?.calendarEvents}
         monthLabel={liveView?.monthLabel}
         weekDays={liveView?.weekDays}

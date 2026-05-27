@@ -58,6 +58,7 @@ export type LockedDashboardFocus = {
 export type LockedUiViewModel = {
   allDayEvents: LockedAllDayEvent[];
   assistantSuggestion: string;
+  calendarWeekStart: string;
   calendarEvents: LockedCalendarEvent[];
   dashboardCards: LockedDashboardCard[];
   dashboardFocus: LockedDashboardFocus | null;
@@ -94,10 +95,9 @@ export function createLockedUiViewModel(
   const manualEvents = snapshot?.manualEvents ?? [];
   const coursesById = new Map(courses.map((course) => [course.id, course]));
   const assignmentRows = buildAssignmentRows(assignments, coursesById, now);
-  const calendarAnchor = getCalendarAnchorDate(assignments, studyBlocks, manualEvents, now);
-  const weekStart = startOfWeek(calendarAnchor);
+  const weekStart = startOfWeek(now);
   const weekDays = buildWeekDays(weekStart, now);
-  const allDayEvents = buildAllDayEvents(assignments, coursesById, weekStart, now);
+  const allDayEvents = buildAllDayEvents(assignments, manualEvents, coursesById, weekStart, now);
   const calendarEvents = buildCalendarEvents(studyBlocks, manualEvents, assignments, coursesById, weekStart);
   const focusSessions = buildFocusSessions(studyBlocks);
   const focusBars = buildFocusBars(studyBlocks, weekStart);
@@ -107,6 +107,7 @@ export function createLockedUiViewModel(
   return {
     allDayEvents,
     assistantSuggestion: buildAssistantSuggestion(assignmentRows),
+    calendarWeekStart: weekStart.toISOString(),
     calendarEvents,
     dashboardCards: buildDashboardCards({
       assignmentRows,
@@ -166,11 +167,12 @@ function buildAssignmentRows(
 
 function buildAllDayEvents(
   assignments: WorkspaceAssignment[],
+  manualEvents: ManualEvent[],
   coursesById: Map<string, Course>,
   weekStart: Date,
   now: Date
 ): LockedAllDayEvent[] {
-  return assignments
+  const assignmentEvents = assignments
     .filter((assignment) => !isCompleted(assignment))
     .flatMap((assignment) => {
       const dueDate = parseDate(assignment.dueDate);
@@ -186,11 +188,34 @@ function buildAllDayEvents(
         {
           id: `assignment-${assignment.id}`,
           dayIndex,
+          kind: "assignment" as const,
+          startsAt: dueDate.toISOString(),
           title: `${getCourseShortName(course)} due`,
           tone: getToneForPriority(getPriorityBand(assignment, now))
         }
       ];
     });
+  const canvasAllDayEvents = manualEvents.flatMap((event) => {
+    const start = parseDate(event.startTime);
+    const dayIndex = start ? getDayIndex(start, weekStart) : -1;
+
+    if (!start || dayIndex < 0 || dayIndex > 6 || !isCanvasAllDayManualEvent(event)) {
+      return [];
+    }
+
+    return [
+      {
+        id: `canvas-all-day-${event.id}`,
+        dayIndex,
+        kind: "canvas" as const,
+        startsAt: start.toISOString(),
+        title: event.title,
+        tone: "blue" as EventTone
+      }
+    ];
+  });
+
+  return [...assignmentEvents, ...canvasAllDayEvents];
 }
 
 function buildCalendarEvents(
@@ -218,6 +243,9 @@ function buildCalendarEvents(
       {
         id: `study-${block.id}`,
         dayIndex,
+        endsAt: end.toISOString(),
+        kind: "study" as const,
+        startsAt: start.toISOString(),
         title: block.title || assignment?.title || "Study session",
         time: formatTimeRange(start, end),
         startHour: clampCalendarHour(toDecimalHour(start)),
@@ -232,7 +260,7 @@ function buildCalendarEvents(
     const end = parseDate(event.endTime);
     const dayIndex = start ? getDayIndex(start, weekStart) : -1;
 
-    if (!start || !end || dayIndex < 0 || dayIndex > 6) {
+    if (!start || !end || dayIndex < 0 || dayIndex > 6 || isCanvasAllDayManualEvent(event)) {
       return [];
     }
 
@@ -240,11 +268,14 @@ function buildCalendarEvents(
       {
         id: `manual-${event.id}`,
         dayIndex,
+        endsAt: end.toISOString(),
+        kind: isCanvasManualEvent(event) ? ("canvas" as const) : ("manual" as const),
+        startsAt: start.toISOString(),
         title: event.title,
         time: formatTimeRange(start, end),
         startHour: clampCalendarHour(toDecimalHour(start)),
         endHour: clampCalendarEndHour(toDecimalHour(start), toDecimalHour(end)),
-        tone: "neutral" as EventTone
+        tone: isCanvasManualEvent(event) ? ("blue" as EventTone) : ("neutral" as EventTone)
       }
     ];
   });
@@ -409,28 +440,6 @@ function buildWeekDays(weekStart: Date, now: Date): LockedWeekDay[] {
   });
 }
 
-function getCalendarAnchorDate(
-  assignments: WorkspaceAssignment[],
-  studyBlocks: StudyBlock[],
-  manualEvents: ManualEvent[],
-  now: Date
-) {
-  const futureDates = [
-    ...assignments.map((assignment) => parseDate(assignment.dueDate)),
-    ...studyBlocks.map((block) => parseDate(block.startTime)),
-    ...manualEvents.map((event) => parseDate(event.startTime))
-  ]
-    .filter((date): date is Date => Boolean(date))
-    .filter((date) => date.getTime() >= now.getTime())
-    .sort((first, second) => first.getTime() - second.getTime());
-
-  if (futureDates[0]) {
-    return futureDates[0];
-  }
-
-  return now;
-}
-
 function startOfWeek(date: Date) {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
@@ -557,6 +566,14 @@ function getToneForCourse(course: Course | undefined): EventTone {
 
 function isCompleted(assignment: WorkspaceAssignment) {
   return assignment.status === "submitted" || assignment.status === "graded";
+}
+
+function isCanvasManualEvent(event: ManualEvent) {
+  return event.cadence?.startsWith("Canvas:") ?? false;
+}
+
+function isCanvasAllDayManualEvent(event: ManualEvent) {
+  return isCanvasManualEvent(event) && (event.cadence?.endsWith(":all-day") ?? false);
 }
 
 function getCourseShortName(course: Course | undefined) {

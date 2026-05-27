@@ -36,6 +36,24 @@ export type CanvasAssignment = {
   workflow_state?: unknown;
 };
 
+export type CanvasCalendarEvent = {
+  all_day?: unknown;
+  context_code?: unknown;
+  context_name?: unknown;
+  created_at?: unknown;
+  description?: unknown;
+  effective_context_code?: unknown;
+  end_at?: unknown;
+  html_url?: unknown;
+  id?: unknown;
+  location_address?: unknown;
+  location_name?: unknown;
+  start_at?: unknown;
+  title?: unknown;
+  updated_at?: unknown;
+  workflow_state?: unknown;
+};
+
 export type CanvasFile = {
   content_type?: unknown;
   display_name?: unknown;
@@ -100,6 +118,14 @@ export type FileResourceInsert = {
   summary: string;
   title: string;
   type: "pdf" | "doc" | "image" | "link";
+  user_id: string;
+};
+
+export type ManualEventInsert = {
+  cadence: string | null;
+  ends_at: string;
+  starts_at: string;
+  title: string;
   user_id: string;
 };
 
@@ -201,6 +227,37 @@ export function normalizeAssignmentInsert({
     source: "canvas",
     status: getAssignmentStatus(assignment, dueAt),
     summary,
+    title,
+    user_id: userId
+  };
+}
+
+export function normalizeCalendarEventInsert({
+  canvasDomain,
+  event,
+  userId
+}: {
+  canvasDomain: string;
+  event: CanvasCalendarEvent;
+  userId: string;
+}): ManualEventInsert | null {
+  const id = getCanvasId(event.id);
+  const title = asText(event.title);
+  const workflowState = asText(event.workflow_state);
+  const start = parseCanvasDate(event.start_at);
+
+  if (!id || !title || !start || workflowState === "deleted") {
+    return null;
+  }
+
+  const allDay = event.all_day === true;
+  const parsedEnd = parseCanvasDate(event.end_at);
+  const end = getCalendarEventEnd({ allDay, end: parsedEnd, start });
+
+  return {
+    cadence: `Canvas:${canvasDomain}:${id}:${allDay ? "all-day" : "timed"}`,
+    ends_at: end.toISOString(),
+    starts_at: start.toISOString(),
     title,
     user_id: userId
   };
@@ -386,6 +443,35 @@ function getAssignmentStatus(assignment: CanvasAssignment, dueAt: string | null)
   }
 
   return "not_started";
+}
+
+function parseCanvasDate(value: unknown) {
+  const text = asText(value);
+
+  if (!text) {
+    return null;
+  }
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getCalendarEventEnd({
+  allDay,
+  end,
+  start
+}: {
+  allDay: boolean;
+  end: Date | null;
+  start: Date;
+}) {
+  if (end && end.getTime() > start.getTime()) {
+    return end;
+  }
+
+  const fallback = new Date(start);
+  fallback.setTime(start.getTime() + (allDay ? 24 * 60 : 60) * 60 * 1000);
+  return fallback;
 }
 
 function estimateEffortMinutes(description: string, points: unknown) {

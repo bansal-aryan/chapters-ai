@@ -92,6 +92,7 @@ export function LockedSettingsPage({
       sync?: {
         counts?: {
           assignments: number;
+          calendarEvents?: number;
           courses: number;
           resources: number;
         };
@@ -108,7 +109,7 @@ export function LockedSettingsPage({
     setSyncStatus("success");
     setSyncMessage(
       counts
-        ? `Synced ${counts.courses} courses, ${counts.assignments} assignments, and ${counts.resources} resources.`
+        ? `Synced ${counts.courses} courses, ${counts.assignments} assignments, ${counts.calendarEvents ?? 0} calendar events, and ${counts.resources} resources.`
         : "Canvas sync finished."
     );
   }

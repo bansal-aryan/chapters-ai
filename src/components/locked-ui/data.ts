@@ -27,6 +27,8 @@ export type LockedWeekDay = {
 export type LockedAllDayEvent = {
   dayIndex: number;
   id: string;
+  kind?: "assignment" | "canvas" | "manual" | "study";
+  startsAt?: string;
   title: string;
   tone: EventTone;
 };
@@ -34,8 +36,11 @@ export type LockedAllDayEvent = {
 export type LockedCalendarEvent = {
   dayIndex: number;
   endHour: number;
+  endsAt?: string;
   id: string;
+  kind?: "assignment" | "canvas" | "manual" | "study";
   startHour: number;
+  startsAt?: string;
   time: string;
   title: string;
   tone: EventTone;

@@ -3,14 +3,17 @@ import { CanvasApiClient, CanvasApiError } from "@/lib/canvas/api";
 import {
   type AssignmentInsert,
   type CanvasAssignment,
+  type CanvasCalendarEvent,
   type CanvasCourse,
   type CanvasFile,
   type CanvasModule,
   type FileResourceInsert,
+  type ManualEventInsert,
   createAssignmentSearchChunk,
   createResourceSearchChunk,
   getCanvasId,
   normalizeAssignmentInsert,
+  normalizeCalendarEventInsert,
   normalizeCourseInsert,
   normalizeFileResourceInsert,
   normalizeModuleResourceInsert
@@ -39,6 +42,7 @@ export type CanvasSyncResult =
 
 type CanvasSyncCounts = {
   assignments: number;
+  calendarEvents: number;
   courses: number;
   resources: number;
   searchChunks: number;
@@ -205,7 +209,7 @@ async function syncCanvasConnection(
             counts
           }),
           status: "succeeded",
-          summary: `Synced ${counts.courses} courses, ${counts.assignments} assignments, and ${counts.resources} resources.`
+          summary: `Synced ${counts.courses} courses, ${counts.assignments} assignments, ${counts.calendarEvents} calendar events, and ${counts.resources} resources.`
         })
         .eq("id", run.syncRunId)
         .eq("user_id", userId),
@@ -276,6 +280,7 @@ async function syncCanvasData({
   const courseIdByCanvasId = new Map(syncedCourses.map((course) => [course.canvas_course_id, course.id]));
   const assignmentRows: AssignmentInsert[] = [];
   const resourceRowsByKey = new Map<string, FileResourceInsert>();
+  const calendarEventRowsByKey = new Map<string, ManualEventInsert>();
 
   for (const canvasCourse of canvasCourses) {
     const canvasCourseId = getCanvasId(canvasCourse.id);
@@ -336,8 +341,38 @@ async function syncCanvasData({
     });
   }
 
+  const calendarEvents = await getCanvasCalendarEvents({
+    canvasCourseIds: canvasCourses.flatMap((course) => {
+      const id = getCanvasId(course.id);
+      return id ? [id] : [];
+    }),
+    client,
+    syncedAt
+  });
+
+  calendarEvents
+    .map((event) =>
+      normalizeCalendarEventInsert({
+        canvasDomain: connection.canvas_domain,
+        event,
+        userId
+      })
+    )
+    .filter((event): event is ManualEventInsert => Boolean(event))
+    .forEach((event) => {
+      if (event.cadence) {
+        calendarEventRowsByKey.set(event.cadence, event);
+      }
+    });
+
   const syncedAssignments = await upsertAssignments(supabase, assignmentRows);
   const syncedResources = await upsertResources(supabase, [...resourceRowsByKey.values()]);
+  const syncedCalendarEventCount = await replaceCanvasCalendarEvents({
+    canvasDomain: connection.canvas_domain,
+    rows: [...calendarEventRowsByKey.values()],
+    supabase,
+    userId
+  });
   const searchChunks = [
     ...createAssignmentChunks({
       assignmentRows,
@@ -361,6 +396,7 @@ async function syncCanvasData({
 
   return {
     assignments: syncedAssignments.length,
+    calendarEvents: syncedCalendarEventCount,
     courses: syncedCourses.length,
     resources: syncedResources.length,
     searchChunks: searchChunks.length
@@ -383,6 +419,51 @@ async function getCourseModules(client: CanvasApiClient, canvasCourseId: string)
   });
 }
 
+async function getCanvasCalendarEvents({
+  canvasCourseIds,
+  client,
+  syncedAt
+}: {
+  canvasCourseIds: string[];
+  client: CanvasApiClient;
+  syncedAt: string;
+}) {
+  const { endDate, startDate } = getCalendarSyncWindow(syncedAt);
+  const eventsById = new Map<string, CanvasCalendarEvent>();
+  const personalEvents = await getOptionalPaginated<CanvasCalendarEvent>(client, "/api/v1/calendar_events", {
+    end_date: endDate,
+    start_date: startDate,
+    type: "event"
+  });
+
+  personalEvents.forEach((event) => {
+    const id = getCanvasId(event.id);
+
+    if (id) {
+      eventsById.set(id, event);
+    }
+  });
+
+  for (const batch of chunkArray(canvasCourseIds, 10)) {
+    const courseEvents = await getOptionalPaginated<CanvasCalendarEvent>(client, "/api/v1/calendar_events", {
+      "context_codes[]": batch.map((id) => `course_${id}`),
+      end_date: endDate,
+      start_date: startDate,
+      type: "event"
+    });
+
+    courseEvents.forEach((event) => {
+      const id = getCanvasId(event.id);
+
+      if (id) {
+        eventsById.set(id, event);
+      }
+    });
+  }
+
+  return [...eventsById.values()];
+}
+
 async function getOptionalPaginated<T>(client: CanvasApiClient, path: string, params = {}) {
   try {
     return await client.getPaginated<T>(path, params);
@@ -393,6 +474,34 @@ async function getOptionalPaginated<T>(client: CanvasApiClient, path: string, pa
 
     throw error;
   }
+}
+
+function getCalendarSyncWindow(syncedAt: string) {
+  const anchor = new Date(syncedAt);
+  const start = Number.isNaN(anchor.getTime()) ? new Date() : anchor;
+  const end = new Date(start);
+
+  start.setDate(start.getDate() - 30);
+  end.setDate(end.getDate() + 365);
+
+  return {
+    endDate: toCanvasDate(end),
+    startDate: toCanvasDate(start)
+  };
+}
+
+function toCanvasDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
 async function upsertCourses(supabase: SupabaseClient<Database>, rows: Array<Database["public"]["Tables"]["courses"]["Insert"]>) {
@@ -450,6 +559,40 @@ async function upsertResources(
   }
 
   return (data ?? []).filter((resource): resource is FileResourceRow => Boolean(resource.canvas_file_id));
+}
+
+async function replaceCanvasCalendarEvents({
+  canvasDomain,
+  rows,
+  supabase,
+  userId
+}: {
+  canvasDomain: string;
+  rows: Array<Database["public"]["Tables"]["manual_events"]["Insert"]>;
+  supabase: SupabaseClient<Database>;
+  userId: string;
+}) {
+  const { error: deleteError } = await supabase
+    .from("manual_events")
+    .delete()
+    .eq("user_id", userId)
+    .like("cadence", `Canvas:${canvasDomain}:%`);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (!rows.length) {
+    return 0;
+  }
+
+  const { data, error } = await supabase.from("manual_events").insert(rows).select("id");
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.length ?? 0;
 }
 
 async function replaceCanvasSearchChunks(
