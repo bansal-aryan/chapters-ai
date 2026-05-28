@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarPlus, ChevronLeft, ChevronRight, Filter, Loader2, Plus, X } from "lucide-react";
+import { CalendarCheck2, CalendarPlus, ChevronLeft, ChevronRight, Filter, Loader2, Plus, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import {
   allDayEvents as defaultAllDayEvents,
@@ -42,6 +43,16 @@ type CalendarEventResponse = {
   title: string;
 };
 
+type StudyPlanResponse = {
+  blocks?: Array<{
+    id: string;
+  }>;
+  error?: string;
+  window?: {
+    isSchoolDay: boolean;
+  };
+};
+
 export function LockedCalendarPage({
   allDayEvents = defaultAllDayEvents,
   calendarWeekStart,
@@ -49,6 +60,7 @@ export function LockedCalendarPage({
   monthLabel = "May 2025",
   weekDays = defaultWeekDays
 }: LockedCalendarPageProps) {
+  const router = useRouter();
   const [view, setView] = useState<(typeof viewOptions)[number]>("Week");
   const [weekOffset, setWeekOffset] = useState(0);
   const [addEventOpen, setAddEventOpen] = useState(false);
@@ -63,6 +75,7 @@ export function LockedCalendarPage({
   const [eventNotice, setEventNotice] = useState("");
   const [eventNoticeTone, setEventNoticeTone] = useState<"error" | "success">("success");
   const [savingEvent, setSavingEvent] = useState(false);
+  const [planningDay, setPlanningDay] = useState(false);
   const [addedCalendarEvents, setAddedCalendarEvents] = useState<LockedCalendarEvent[]>([]);
   const calendarEventSource = useMemo(() => [...calendarEvents, ...addedCalendarEvents], [addedCalendarEvents, calendarEvents]);
   const baseWeekStart = useMemo(() => parseCalendarDate(calendarWeekStart) ?? startOfWeek(new Date()), [calendarWeekStart]);
@@ -153,6 +166,33 @@ export function LockedCalendarPage({
     setEventNotice(`${savedEvent.title} was added to the calendar.`);
   }
 
+  async function handlePlanDay() {
+    setPlanningDay(true);
+    setEventNotice("");
+
+    const response = await fetch("/api/study-plan", {
+      method: "POST"
+    });
+    const result = (await response.json().catch(() => null)) as StudyPlanResponse | null;
+    setPlanningDay(false);
+
+    if (!response.ok) {
+      setEventNoticeTone("error");
+      setEventNotice(result?.error ?? "Could not build a catch-up plan.");
+      return;
+    }
+
+    const count = result?.blocks?.length ?? 0;
+    setAddedCalendarEvents([]);
+    setEventNoticeTone("success");
+    setEventNotice(
+      count
+        ? `Planned ${count} realistic catch-up block${count === 1 ? "" : "s"} for ${result?.window?.isSchoolDay ? "after school" : "today"}.`
+        : "No catch-up blocks needed right now."
+    );
+    router.refresh();
+  }
+
   return (
     <LockedPage className="max-w-[1160px]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -185,6 +225,10 @@ export function LockedCalendarPage({
             <ChevronRight className="ml-1 size-3 rotate-90 text-zinc-500" />
           </button>
           <div className="ml-auto flex items-center gap-3">
+            <ControlButton disabled={planningDay} onClick={handlePlanDay}>
+              {planningDay ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarCheck2 className="size-3.5" />}
+              Plan day
+            </ControlButton>
             <ControlButton active={addEventOpen} onClick={() => setAddEventOpen((open) => !open)}>
               <CalendarPlus className="size-3.5" />
               Add event

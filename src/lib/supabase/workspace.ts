@@ -130,7 +130,7 @@ export async function getWorkspaceSnapshotFromSupabase(
     title: assignment.title,
     description: assignment.description,
     summary: assignment.summary,
-    dueDate: assignment.due_at ?? assignment.created_at,
+    dueDate: assignment.due_at ?? "",
     status: assignment.status,
     estimatedEffortMinutes: assignment.estimated_effort_minutes,
     priorityOverride: assignment.priority_override ?? undefined,
