@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Filter } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CalendarPlus, ChevronLeft, ChevronRight, Filter, Loader2, Plus, X } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   allDayEvents as defaultAllDayEvents,
   calendarEvents as defaultCalendarEvents,
@@ -35,6 +35,13 @@ type LockedCalendarPageProps = {
   weekDays?: readonly LockedWeekDay[];
 };
 
+type CalendarEventResponse = {
+  endsAt: string;
+  id: string;
+  startsAt: string;
+  title: string;
+};
+
 export function LockedCalendarPage({
   allDayEvents = defaultAllDayEvents,
   calendarWeekStart,
@@ -44,30 +51,107 @@ export function LockedCalendarPage({
 }: LockedCalendarPageProps) {
   const [view, setView] = useState<(typeof viewOptions)[number]>("Week");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [addEventOpen, setAddEventOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [calendarFilters, setCalendarFilters] = useState<string[]>([...calendarFilterOptions]);
+  const [eventForm, setEventForm] = useState(() => ({
+    date: formatDateInput(new Date()),
+    endTime: "16:00",
+    startTime: "15:00",
+    title: ""
+  }));
+  const [eventNotice, setEventNotice] = useState("");
+  const [eventNoticeTone, setEventNoticeTone] = useState<"error" | "success">("success");
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [addedCalendarEvents, setAddedCalendarEvents] = useState<LockedCalendarEvent[]>([]);
+  const calendarEventSource = useMemo(() => [...calendarEvents, ...addedCalendarEvents], [addedCalendarEvents, calendarEvents]);
   const baseWeekStart = useMemo(() => parseCalendarDate(calendarWeekStart) ?? startOfWeek(new Date()), [calendarWeekStart]);
   const displayedWeekStart = useMemo(() => addWeeks(baseWeekStart, weekOffset), [baseWeekStart, weekOffset]);
   const displayedWeekDays = useMemo(
     () => (calendarWeekStart ? buildWeekDays(displayedWeekStart) : weekDays),
     [calendarWeekStart, displayedWeekStart, weekDays]
   );
-  const visibleAllDayEvents = useMemo(
-    () =>
-      allDayEvents
-        .flatMap((event) => normalizeAllDayEventForWeek(event, displayedWeekStart, weekOffset))
-        .filter((event) => shouldShowCalendarKind(event.kind, calendarFilters)),
-    [allDayEvents, calendarFilters, displayedWeekStart, weekOffset]
-  );
+  const visibleAllDayEvents = useMemo(() => {
+    const lanesByDay = new Map<number, number>();
+
+    return allDayEvents
+      .flatMap((event) => normalizeAllDayEventForWeek(event, displayedWeekStart, weekOffset))
+      .filter((event) => shouldShowCalendarKind(event.kind, calendarFilters))
+      .sort((first, second) => first.dayIndex - second.dayIndex || first.title.localeCompare(second.title))
+      .map((event) => {
+        const lane = lanesByDay.get(event.dayIndex) ?? 0;
+        lanesByDay.set(event.dayIndex, lane + 1);
+        return { ...event, lane };
+      });
+  }, [allDayEvents, calendarFilters, displayedWeekStart, weekOffset]);
   const visibleCalendarEvents = useMemo(
     () =>
-      calendarEvents
+      calendarEventSource
         .flatMap((event) => normalizeTimedEventForWeek(event, displayedWeekStart, weekOffset))
-        .filter((event) => shouldShowCalendarKind(event.kind, calendarFilters)),
-    [calendarEvents, calendarFilters, displayedWeekStart, weekOffset]
+        .filter((event) => shouldShowCalendarKind(event.kind, calendarFilters))
+        .sort((first, second) => first.dayIndex - second.dayIndex || first.startHour - second.startHour),
+    [calendarEventSource, calendarFilters, displayedWeekStart, weekOffset]
   );
   const dayWidth = 100 / displayedWeekDays.length;
   const displayedMonth = calendarWeekStart ? monthFormatter.format(displayedWeekStart) : monthLabel;
+  const allDayLaneCount = Math.max(1, ...visibleAllDayEvents.map((event) => event.lane + 1));
+  const allDayHeight = Math.max(36, allDayLaneCount * 30 + 8);
+
+  async function handleAddEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const startsAt = buildDateTime(eventForm.date, eventForm.startTime);
+    const endsAt = buildDateTime(eventForm.date, eventForm.endTime);
+
+    if (!eventForm.title.trim() || !startsAt || !endsAt) {
+      setEventNoticeTone("error");
+      setEventNotice("Add a title, start time, and end time.");
+      return;
+    }
+
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      setEventNoticeTone("error");
+      setEventNotice("End time must be after the start time.");
+      return;
+    }
+
+    setSavingEvent(true);
+    setEventNotice("");
+
+    const response = await fetch("/api/calendar/events", {
+      body: JSON.stringify({
+        endsAt: endsAt.toISOString(),
+        startsAt: startsAt.toISOString(),
+        title: eventForm.title
+      }),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
+    });
+    const result = (await response.json().catch(() => null)) as {
+      error?: string;
+      event?: CalendarEventResponse;
+    } | null;
+    setSavingEvent(false);
+
+    if (!response.ok || !result?.event) {
+      setEventNoticeTone("error");
+      setEventNotice(result?.error ?? "Could not add that event.");
+      return;
+    }
+
+    const savedEvent = result.event;
+
+    setAddedCalendarEvents((current) => [
+      ...current,
+      buildManualCalendarEvent(savedEvent, displayedWeekStart)
+    ]);
+    setEventForm((current) => ({ ...current, title: "" }));
+    setAddEventOpen(false);
+    setEventNoticeTone("success");
+    setEventNotice(`${savedEvent.title} was added to the calendar.`);
+  }
 
   return (
     <LockedPage className="max-w-[1160px]">
@@ -101,6 +185,10 @@ export function LockedCalendarPage({
             <ChevronRight className="ml-1 size-3 rotate-90 text-zinc-500" />
           </button>
           <div className="ml-auto flex items-center gap-3">
+            <ControlButton active={addEventOpen} onClick={() => setAddEventOpen((open) => !open)}>
+              <CalendarPlus className="size-3.5" />
+              Add event
+            </ControlButton>
             <SegmentedControl onChange={setView} options={viewOptions} value={view} />
             <ControlButton active={filterOpen} onClick={() => setFilterOpen((open) => !open)}>
               <Filter className="size-3.5" />
@@ -109,6 +197,69 @@ export function LockedCalendarPage({
           </div>
         </div>
       </div>
+
+      {addEventOpen ? (
+        <form
+          className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-[0_10px_30px_rgba(24,24,27,0.035)] sm:grid-cols-[minmax(0,1fr)_160px_130px_130px_auto]"
+          onSubmit={handleAddEvent}
+        >
+          <CalendarTextField
+            label="Title"
+            onChange={(value) => setEventForm((current) => ({ ...current, title: value }))}
+            placeholder="Study group, club meeting, office hours"
+            value={eventForm.title}
+          />
+          <CalendarTextField
+            label="Date"
+            onChange={(value) => setEventForm((current) => ({ ...current, date: value }))}
+            type="date"
+            value={eventForm.date}
+          />
+          <CalendarTextField
+            label="Start"
+            onChange={(value) => setEventForm((current) => ({ ...current, startTime: value }))}
+            type="time"
+            value={eventForm.startTime}
+          />
+          <CalendarTextField
+            label="End"
+            onChange={(value) => setEventForm((current) => ({ ...current, endTime: value }))}
+            type="time"
+            value={eventForm.endTime}
+          />
+          <div className="flex items-end gap-2">
+            <ControlButton
+              aria-label="Cancel event"
+              onClick={() => {
+                setAddEventOpen(false);
+                setEventNotice("");
+              }}
+            >
+              <X className="size-3.5" />
+            </ControlButton>
+            <ControlButton
+              aria-label="Save event"
+              className="border-violet-600 bg-violet-600 text-white hover:bg-violet-700"
+              disabled={savingEvent}
+              type="submit"
+            >
+              {savingEvent ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            </ControlButton>
+          </div>
+        </form>
+      ) : null}
+
+      {eventNotice ? (
+        <div
+          className={`rounded-lg border px-4 py-3 text-[12px] font-medium ${
+            eventNoticeTone === "error"
+              ? "border-red-100 bg-red-50 text-red-700"
+              : "border-violet-100 bg-violet-50 text-violet-800"
+          }`}
+        >
+          {eventNotice}
+        </div>
+      ) : null}
 
       {filterOpen ? (
         <div className="flex flex-wrap gap-2 rounded-lg border border-zinc-200 bg-white p-3">
@@ -155,17 +306,23 @@ export function LockedCalendarPage({
             </div>
 
             <div className="grid grid-cols-[60px_1fr] border-b border-zinc-100">
-              <div className="flex h-9 items-center justify-end pr-3 text-[11px] text-zinc-500">All-day</div>
-              <div className="relative grid h-9 grid-cols-7">
+              <div
+                className="flex items-center justify-end pr-3 text-[11px] text-zinc-500"
+                style={{ height: `${allDayHeight}px` }}
+              >
+                All-day
+              </div>
+              <div className="relative grid grid-cols-7" style={{ height: `${allDayHeight}px` }}>
                 {displayedWeekDays.map((day) => (
                   <div className="border-l border-zinc-100 first:border-l-0" key={day.label} />
                 ))}
                 {visibleAllDayEvents.map((event) => (
                   <div
-                    className={`absolute top-1 flex h-7 items-center truncate rounded-md border px-2 text-[11px] font-medium ${eventToneClasses(event.tone)}`}
+                    className={`absolute flex h-7 items-center truncate rounded-md border px-2 text-[11px] font-medium ${eventToneClasses(event.tone)}`}
                     key={event.id}
                     style={{
                       left: `calc(${event.dayIndex * dayWidth}% + 8px)`,
+                      top: `${4 + event.lane * 30}px`,
                       width: `calc(${dayWidth}% - 16px)`
                     }}
                   >
@@ -228,6 +385,34 @@ export function LockedCalendarPage({
   );
 }
 
+function CalendarTextField({
+  label,
+  onChange,
+  placeholder,
+  type = "text",
+  value
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+  value: string;
+}) {
+  return (
+    <label className="flex flex-col gap-2">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</span>
+      <input
+        className="h-10 rounded-lg border border-zinc-200 bg-white px-3 text-[13px] font-medium text-zinc-800 outline-none placeholder:text-zinc-400 focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        required
+        type={type}
+        value={value}
+      />
+    </label>
+  );
+}
+
 function parseCalendarDate(value: string | undefined) {
   if (!value) {
     return null;
@@ -241,6 +426,40 @@ function parseCalendarDate(value: string | undefined) {
 
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function buildDateTime(date: string, time: string) {
+  if (!date || !time) {
+    return null;
+  }
+
+  const value = new Date(`${date}T${time}`);
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function buildManualCalendarEvent(event: CalendarEventResponse, weekStart: Date): LockedCalendarEvent {
+  const start = new Date(event.startsAt);
+  const end = new Date(event.endsAt);
+
+  return {
+    dayIndex: getDayIndex(start, weekStart),
+    endHour: clampCalendarEndHour(toDecimalHour(start), toDecimalHour(end)),
+    endsAt: event.endsAt,
+    id: `manual-${event.id}`,
+    kind: "manual",
+    startHour: clampCalendarHour(toDecimalHour(start)),
+    startsAt: event.startsAt,
+    time: formatTimeRange(start, end),
+    title: event.title,
+    tone: "neutral"
+  };
+}
+
+function formatDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function addWeeks(date: Date, weekOffset: number) {

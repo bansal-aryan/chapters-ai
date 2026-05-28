@@ -1,4 +1,5 @@
 import type { Assignment, Course, FileResource, ManualEvent, StudyBlock } from "@/types";
+import type { Json } from "@/lib/supabase/database.types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export type WorkspaceProfile = {
@@ -159,7 +160,8 @@ export async function getWorkspaceSnapshotFromSupabase(
       title: file.title,
       type: file.type,
       summary: file.summary,
-      citation: file.citation
+      citation: file.citation,
+      url: getFileResourceUrl(file.metadata, file.citation)
     })),
     manualEvents: manualEventsResult.data.map<ManualEvent>((event) => ({
       id: event.id,
@@ -202,4 +204,34 @@ export async function getWorkspaceSnapshotFromSupabase(
         }
       : null
   };
+}
+
+function getFileResourceUrl(metadata: Json, citation: string) {
+  const metadataUrl = getMetadataString(metadata, ["url", "html_url", "external_url", "page_url", "canvas_url"]);
+
+  if (metadataUrl) {
+    return metadataUrl;
+  }
+
+  return isWebUrl(citation) ? citation : undefined;
+}
+
+function getMetadataString(metadata: Json, keys: string[]) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = metadata[key];
+
+    if (typeof value === "string" && isWebUrl(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function isWebUrl(value: string) {
+  return value.startsWith("https://") || value.startsWith("http://");
 }

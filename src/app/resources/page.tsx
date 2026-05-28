@@ -9,7 +9,11 @@ export default async function ResourcesPage() {
 
   return (
     <AppShell>
-      <LockedResourcesPage files={liveView?.resourceFiles} folders={liveView?.resourceFolders} />
+      <LockedResourcesPage
+        courseOptions={liveView?.resourceCourseOptions}
+        files={liveView?.resourceFiles}
+        folders={liveView?.resourceFolders}
+      />
     </AppShell>
   );
 }

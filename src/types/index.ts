@@ -41,6 +41,7 @@ export type FileResource = {
   type: "pdf" | "doc" | "image" | "link";
   summary: string;
   citation: string;
+  url?: string;
 };
 
 export type StudyBlock = {

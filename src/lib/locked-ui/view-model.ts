@@ -13,11 +13,13 @@ import type {
   LockedCalendarEvent,
   LockedDashboardCard,
   LockedFocusSession,
+  LockedResourceCourseOption,
   LockedResourceFile,
   LockedResourceFolder,
   LockedWeekDay,
   ResourceFileType
 } from "@/components/locked-ui/data";
+import { getAssignmentSimilarityScores } from "@/lib/domain/assignment-similarity";
 import { getPriorityBand, getPriorityScore } from "@/lib/domain/prioritization";
 import { getAuthState } from "@/lib/supabase/auth-state";
 import { getWorkspaceSnapshotFromSupabase, type WorkspaceSnapshot } from "@/lib/supabase/workspace";
@@ -66,6 +68,7 @@ export type LockedUiViewModel = {
   focusBars: number[];
   focusSessions: LockedFocusSession[];
   monthLabel: string;
+  resourceCourseOptions: LockedResourceCourseOption[];
   resourceFiles: LockedResourceFile[];
   resourceFolders: LockedResourceFolder[];
   totalFocusTime: string;
@@ -97,7 +100,7 @@ export function createLockedUiViewModel(
   const assignmentRows = buildAssignmentRows(assignments, coursesById, now);
   const weekStart = startOfWeek(now);
   const weekDays = buildWeekDays(weekStart, now);
-  const allDayEvents = buildAllDayEvents(assignments, manualEvents, coursesById, weekStart, now);
+  const allDayEvents = buildAllDayEvents(assignments, manualEvents, weekStart, now);
   const calendarEvents = buildCalendarEvents(studyBlocks, manualEvents, assignments, coursesById, weekStart);
   const focusSessions = buildFocusSessions(studyBlocks);
   const focusBars = buildFocusBars(studyBlocks, weekStart);
@@ -121,6 +124,7 @@ export function createLockedUiViewModel(
     focusBars,
     focusSessions,
     monthLabel: monthFormatter.format(weekStart),
+    resourceCourseOptions: buildResourceCourseOptions(courses),
     resourceFiles: buildResourceFiles(files, coursesById),
     resourceFolders: buildResourceFolders(files, courses),
     totalFocusTime: formatDuration(totalFocusMinutes),
@@ -134,12 +138,15 @@ function buildAssignmentRows(
   coursesById: Map<string, Course>,
   now: Date
 ): LockedAssignmentRow[] {
+  const similarityScores = getAssignmentSimilarityScores(assignments);
+
   return assignments
     .map((assignment) => {
       const course = coursesById.get(assignment.courseId);
       const dueDate = parseDate(assignment.dueDate);
       const priority = getPriorityBand(assignment, now);
       const priorityScore = getPriorityScore(assignment, now);
+      const similarity = similarityScores.get(assignment.id);
 
       return {
         id: assignment.id,
@@ -151,6 +158,8 @@ function buildAssignmentRows(
         dueLabel: getDueLabel(assignment, dueDate, now),
         dueDate: dueDate ? dateTimeFormatter.format(dueDate) : "No due date",
         priorityScore,
+        similarityScore: similarity?.score,
+        similarAssignmentTitle: similarity?.relatedAssignmentTitle,
         source: assignment.source,
         status: isCompleted(assignment) ? ("completed" as const) : ("upcoming" as const),
         accent: getAccent(course)
@@ -168,7 +177,6 @@ function buildAssignmentRows(
 function buildAllDayEvents(
   assignments: WorkspaceAssignment[],
   manualEvents: ManualEvent[],
-  coursesById: Map<string, Course>,
   weekStart: Date,
   now: Date
 ): LockedAllDayEvent[] {
@@ -176,37 +184,33 @@ function buildAllDayEvents(
     .filter((assignment) => !isCompleted(assignment))
     .flatMap((assignment) => {
       const dueDate = parseDate(assignment.dueDate);
-      const dayIndex = dueDate ? getDayIndex(dueDate, weekStart) : -1;
 
-      if (!dueDate || dayIndex < 0 || dayIndex > 6) {
+      if (!dueDate) {
         return [];
       }
-
-      const course = coursesById.get(assignment.courseId);
 
       return [
         {
           id: `assignment-${assignment.id}`,
-          dayIndex,
+          dayIndex: getDayIndex(dueDate, weekStart),
           kind: "assignment" as const,
           startsAt: dueDate.toISOString(),
-          title: `${getCourseShortName(course)} due`,
+          title: `Due: ${assignment.title}`,
           tone: getToneForPriority(getPriorityBand(assignment, now))
         }
       ];
     });
   const canvasAllDayEvents = manualEvents.flatMap((event) => {
     const start = parseDate(event.startTime);
-    const dayIndex = start ? getDayIndex(start, weekStart) : -1;
 
-    if (!start || dayIndex < 0 || dayIndex > 6 || !isCanvasAllDayManualEvent(event)) {
+    if (!start || !isCanvasAllDayManualEvent(event)) {
       return [];
     }
 
     return [
       {
         id: `canvas-all-day-${event.id}`,
-        dayIndex,
+        dayIndex: getDayIndex(start, weekStart),
         kind: "canvas" as const,
         startsAt: start.toISOString(),
         title: event.title,
@@ -230,9 +234,8 @@ function buildCalendarEvents(
   const studyEvents = studyBlocks.flatMap((block) => {
     const start = parseDate(block.startTime);
     const end = parseDate(block.endTime);
-    const dayIndex = start ? getDayIndex(start, weekStart) : -1;
 
-    if (!start || !end || dayIndex < 0 || dayIndex > 6) {
+    if (!start || !end) {
       return [];
     }
 
@@ -242,7 +245,7 @@ function buildCalendarEvents(
     return [
       {
         id: `study-${block.id}`,
-        dayIndex,
+        dayIndex: getDayIndex(start, weekStart),
         endsAt: end.toISOString(),
         kind: "study" as const,
         startsAt: start.toISOString(),
@@ -258,16 +261,15 @@ function buildCalendarEvents(
   const manualCalendarEvents = manualEvents.flatMap((event) => {
     const start = parseDate(event.startTime);
     const end = parseDate(event.endTime);
-    const dayIndex = start ? getDayIndex(start, weekStart) : -1;
 
-    if (!start || !end || dayIndex < 0 || dayIndex > 6 || isCanvasAllDayManualEvent(event)) {
+    if (!start || !end || isCanvasAllDayManualEvent(event)) {
       return [];
     }
 
     return [
       {
         id: `manual-${event.id}`,
-        dayIndex,
+        dayIndex: getDayIndex(start, weekStart),
         endsAt: end.toISOString(),
         kind: isCanvasManualEvent(event) ? ("canvas" as const) : ("manual" as const),
         startsAt: start.toISOString(),
@@ -373,16 +375,26 @@ function buildResourceFolders(files: FileResource[], courses: Course[]): LockedR
     });
 }
 
+function buildResourceCourseOptions(courses: Course[]): LockedResourceCourseOption[] {
+  return courses.map((course) => ({
+    id: course.id,
+    label: course.name || course.code || "Untitled course"
+  }));
+}
+
 function buildResourceFiles(files: FileResource[], coursesById: Map<string, Course>): LockedResourceFile[] {
   return files.map((file) => {
     const course = coursesById.get(file.courseId);
     const fileType = getResourceType(file.type);
 
     return {
+      courseId: file.courseId,
+      href: file.url,
       id: file.id,
       title: file.title,
       type: fileType,
       meta: `${getResourceTypeLabel(fileType)} - ${file.source === "canvas" ? "Canvas" : "Manual"}`,
+      source: file.source,
       date: getCourseShortName(course)
     };
   });

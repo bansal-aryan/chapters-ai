@@ -13,6 +13,8 @@ export type LockedAssignmentRow = {
   dueDate: string;
   dueBucket?: "today" | "week" | "later" | "none" | "overdue";
   priorityScore?: number;
+  similarityScore?: number;
+  similarAssignmentTitle?: string;
   source?: "canvas" | "manual";
   status: AssignmentStatus;
   accent: string;
@@ -60,11 +62,19 @@ export type LockedResourceFolder = {
 };
 
 export type LockedResourceFile = {
+  courseId?: string;
   date: string;
+  href?: string;
   id: string;
   meta: string;
+  source?: "canvas" | "manual";
   title: string;
   type: ResourceFileType;
+};
+
+export type LockedResourceCourseOption = {
+  id: string;
+  label: string;
 };
 
 export type LockedDashboardCard = {

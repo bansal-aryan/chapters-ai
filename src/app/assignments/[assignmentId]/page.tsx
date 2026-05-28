@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   FileText,
   MessageSquareText,
   Sparkles
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import * as demoData from "@/data/demo-data";
+import { getAssignmentSimilarityScores } from "@/lib/domain/assignment-similarity";
 import { formatDateTime } from "@/lib/domain/format";
 import { formatEffort, getPriorityReason } from "@/lib/domain/prioritization";
 import { getWorkspaceSnapshotFromSupabase } from "@/lib/supabase/workspace";
@@ -51,7 +53,15 @@ export default async function AssignmentPage({ params }: AssignmentPageProps) {
 
   const course = courses.find((item) => item.id === assignment.courseId);
   const relatedFiles = files.filter((file) => assignment.relatedFileIds.includes(file.id));
-  const relatedAssignments = assignments.filter((item) => assignment.relatedAssignmentIds.includes(item.id));
+  const similarityScores = getAssignmentSimilarityScores(assignments);
+  const assignmentSimilarity = similarityScores.get(assignment.id);
+  const relatedAssignmentIds = new Set(assignment.relatedAssignmentIds);
+
+  if (assignmentSimilarity) {
+    relatedAssignmentIds.add(assignmentSimilarity.relatedAssignmentId);
+  }
+
+  const relatedAssignments = assignments.filter((item) => relatedAssignmentIds.has(item.id));
   const studyBlocks = studyBlocksSnapshot.filter((block) => block.assignmentId === assignment.id);
 
   return (
@@ -75,6 +85,9 @@ export default async function AssignmentPage({ params }: AssignmentPageProps) {
                   <div className="flex flex-wrap gap-2">
                     {course ? <Badge variant="secondary">{course.name}</Badge> : null}
                     <Badge variant={assignment.source === "canvas" ? "success" : "info"}>{assignment.source}</Badge>
+                    {assignmentSimilarity ? (
+                      <Badge variant="secondary">{assignmentSimilarity.score}% similar to completed work</Badge>
+                    ) : null}
                     {assignment.status === "missing" ? <Badge variant="warning">Missing</Badge> : null}
                   </div>
                 }
@@ -144,7 +157,20 @@ export default async function AssignmentPage({ params }: AssignmentPageProps) {
                     </div>
                     <h3 className="text-sm font-semibold">{file.title}</h3>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{file.summary}</p>
-                    <p className="mt-4 text-xs text-muted-foreground">{file.citation}</p>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <p className="min-w-0 truncate text-xs text-muted-foreground">{file.citation}</p>
+                      {file.url ? (
+                        <a
+                          className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-border px-3 text-xs font-medium transition-colors hover:bg-muted"
+                          href={file.url}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Open
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
                   </article>
                 ))}
               </CardContent>
@@ -167,7 +193,11 @@ export default async function AssignmentPage({ params }: AssignmentPageProps) {
                         <p className="text-sm font-medium">{relatedAssignment.title}</p>
                         <p className="mt-1 text-xs text-muted-foreground">{relatedAssignment.summary}</p>
                       </div>
-                      <Badge variant="secondary">{formatDateTime(relatedAssignment.dueDate)}</Badge>
+                      <Badge variant="secondary">
+                        {assignmentSimilarity?.relatedAssignmentId === relatedAssignment.id
+                          ? `${assignmentSimilarity.score}% match`
+                          : formatDateTime(relatedAssignment.dueDate)}
+                      </Badge>
                     </Link>
                   ))
                 ) : (

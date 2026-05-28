@@ -22,6 +22,7 @@ export function LockedAssignmentsPage({
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [dueFilter, setDueFilter] = useState("all");
+  const [similarityFilter, setSimilarityFilter] = useState("all");
   const emptyLabel = tab === "All" ? "assignments" : `${tab.toLowerCase()} assignments`;
   const courseOptions = useMemo(() => [...new Set(assignments.map((assignment) => assignment.course))], [assignments]);
   const visibleAssignments = useMemo(() => {
@@ -46,9 +47,13 @@ export function LockedAssignmentsPage({
         return false;
       }
 
+      if (!matchesSimilarityFilter(assignment.similarityScore, similarityFilter)) {
+        return false;
+      }
+
       return true;
     });
-  }, [assignments, courseFilter, dueFilter, priorityFilter, sourceFilter, tab]);
+  }, [assignments, courseFilter, dueFilter, priorityFilter, similarityFilter, sourceFilter, tab]);
 
   return (
     <LockedPage>
@@ -78,7 +83,7 @@ export function LockedAssignmentsPage({
       </div>
 
       {filtersOpen ? (
-        <section className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
           <FilterSelect label="Course" onChange={setCourseFilter} options={courseOptions} value={courseFilter} />
           <FilterSelect
             label="Priority"
@@ -92,6 +97,12 @@ export function LockedAssignmentsPage({
             onChange={setDueFilter}
             options={["overdue", "today", "week", "later", "none"]}
             value={dueFilter}
+          />
+          <FilterSelect
+            label="Similarity"
+            onChange={setSimilarityFilter}
+            options={["high_similarity", "medium_similarity", "low_similarity", "none"]}
+            value={similarityFilter}
           />
         </section>
       ) : null}
@@ -111,7 +122,18 @@ export function LockedAssignmentsPage({
                   <span>{assignment.course}</span>
                   <span className="size-1 rounded-full bg-zinc-300" />
                   <span>{assignment.owner}</span>
+                  {assignment.similarityScore !== undefined ? (
+                    <>
+                      <span className="size-1 rounded-full bg-zinc-300" />
+                      <span>{assignment.similarityScore}% like completed work</span>
+                    </>
+                  ) : null}
                 </p>
+                {assignment.similarAssignmentTitle ? (
+                  <p className="mt-2 truncate text-[11px] font-medium text-violet-700">
+                    Closest match: {assignment.similarAssignmentTitle}
+                  </p>
+                ) : null}
               </div>
               <div className="col-start-2 mt-2 flex items-start md:col-auto md:mt-0 md:justify-end">
                 <PriorityPill priority={assignment.priority} />
@@ -176,4 +198,30 @@ function formatOption(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function matchesSimilarityFilter(score: number | undefined, filter: string) {
+  if (filter === "all") {
+    return true;
+  }
+
+  if (filter === "none") {
+    return score === undefined;
+  }
+
+  const normalizedScore = score ?? 0;
+
+  if (filter === "high_similarity") {
+    return normalizedScore >= 70;
+  }
+
+  if (filter === "medium_similarity") {
+    return normalizedScore >= 40 && normalizedScore < 70;
+  }
+
+  if (filter === "low_similarity") {
+    return normalizedScore > 0 && normalizedScore < 40;
+  }
+
+  return true;
 }
